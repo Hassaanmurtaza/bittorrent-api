@@ -6,7 +6,7 @@
 // src/tmdb.js. Keeping it pure makes it cheap to unit-test the regex zoo.
 
 const RELEASE_TAG_PATTERN =
-  /\b(1080p|720p|2160p|4k|webrip|web-?dl|web|bluray|brrip|hdtv|x264|x265|h264|h265|hevc|aac|dts|ddp|ac3|hdr10?|10bit|dvdrip|repack|proper|extended|directors?\.?cut|remastered|imax|amzn|nf|hulu|dsnp|atvp|max)\b/i;
+  /\b(1080p|720p|2160p|480p|4k|webrip|web-?dl|web|bluray|brrip|bdrip|hdtv|x264|x265|h264|h265|hevc|aac|dts|ddp|ac3|hdr10?|10bit|dvdrip|repack|proper|extended|directors?\.?cut|remastered|imax|amzn|nf|hulu|dsnp|atvp|max)\b/i;
 
 // Anything that says "we are past the title and into metadata":
 //   S06, S06E12, Season 6, Seasons 1-9, 6x12
@@ -16,12 +16,20 @@ const SEASON_MARKER_PATTERN =
 // Anime-style absolute episode numbering: "Black Clover - 042" / "- 170".
 const ANIME_EPISODE_PATTERN = /\s+[-–]\s+\d{1,4}\b/;
 
-const COMPLETE_SERIES_PATTERNS = [
-  /\bcomplete[\s.\-_]*(series|collection)?\b/i,
+// Patterns that mean "multiple seasons in one torrent":
+//   S01-S05, S01 - S05, Seasons 1-9, Series 1-3
+const MULTI_SEASON_RANGE_PATTERNS = [
   /\bS\d{1,2}\s*[-–]\s*S\d{1,2}\b/i,
   /\bSeasons?\s*\d{1,2}\s*[-–]\s*\d{1,2}\b/i,
   /\bSeries\s*\d{1,2}\s*[-–]\s*\d{1,2}\b/i
 ];
+
+// "Complete Series" / "Complete Collection" -- explicit multi-season phrase.
+const COMPLETE_SERIES_PHRASE = /\bcomplete[\s.\-_]+(series|collection)\b/i;
+// "Complete" on its own. Only counts as multi-season if no explicit season
+// number is present in the name, because "Season 4 Complete" means a complete
+// *season 4*, not a complete series.
+const BARE_COMPLETE = /\bcomplete\b/i;
 
 const YEAR_PATTERN = /\b(19\d{2}|20\d{2})\b/;
 const TRAILING_GROUP_PATTERN = /\s*[-–][A-Za-z0-9]+\s*$/;
@@ -63,8 +71,8 @@ export function parseDisplayName(link) {
   }
 }
 
-function detectCompleteSeries(value) {
-  for (const rx of COMPLETE_SERIES_PATTERNS) {
+function detectMultiSeasonRange(value) {
+  for (const rx of MULTI_SEASON_RANGE_PATTERNS) {
     if (rx.test(value)) return true;
   }
   return false;
@@ -135,8 +143,20 @@ export function parseSeriesInfo(displayName) {
   const normalized = normalizeSeparators(displayName);
   if (!normalized) return empty;
 
-  const isCompleteSeries = detectCompleteSeries(normalized);
-  const season = detectSeason(normalized);
+  const detectedSeason = detectSeason(normalized);
+  const isMultiSeasonRange = detectMultiSeasonRange(normalized);
+  const hasCompleteSeriesPhrase = COMPLETE_SERIES_PHRASE.test(normalized);
+  const hasBareComplete = BARE_COMPLETE.test(normalized);
+
+  // A single-season number wins over a bare "Complete" word.
+  // "Breaking Bad Season 4 Complete" -> single Season 4, not full series.
+  // Multi-season range / "Complete Series" / "Complete Collection" override.
+  const isCompleteSeries =
+    isMultiSeasonRange ||
+    hasCompleteSeriesPhrase ||
+    (detectedSeason === null && hasBareComplete);
+
+  const season = isCompleteSeries ? null : detectedSeason;
   const title = extractTitle(normalized);
 
   return { title, season, isCompleteSeries };
