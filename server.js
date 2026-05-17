@@ -6,7 +6,6 @@ import { pathToFileURL } from "node:url";
 import { extractSupportedLinks, hasUnsupportedWebUrl } from "./src/links.js";
 import { addToQbittorrent } from "./src/qbittorrent.js";
 import { createRelayStore } from "./src/storage.js";
-import { search1337x } from "./src/searchProviders/x1337.js";
 
 const DEFAULT_CONFIG = {
   port: 7331,
@@ -130,109 +129,27 @@ function page(config, message = "") {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>qBittorrent Local Bridge</title>
   <style>
-    :root {
-      color-scheme: light dark;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f7f4ef;
-      color: #202124;
-    }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: center;
-      padding: 32px 16px;
-      box-sizing: border-box;
-    }
-    main {
-      width: min(820px, 100%);
-    }
-    h1 {
-      font-size: clamp(2rem, 5vw, 4rem);
-      line-height: 1;
-      margin: 0 0 16px;
-      letter-spacing: 0;
-    }
-    p {
-      color: #5c5f64;
-      line-height: 1.55;
-      max-width: 68ch;
-    }
-    form {
-      display: grid;
-      gap: 14px;
-      margin-top: 28px;
-    }
-    textarea, input {
-      width: 100%;
-      box-sizing: border-box;
-      border: 1px solid #c8c3ba;
-      border-radius: 8px;
-      padding: 14px;
-      font: inherit;
-      background: #fffdfa;
-      color: inherit;
-    }
-    textarea {
-      min-height: 160px;
-      resize: vertical;
-    }
-    .row {
-      display: flex;
-      flex-wrap: wrap;
-      gap: 12px;
-      align-items: center;
-    }
-    button {
-      border: 0;
-      border-radius: 8px;
-      padding: 12px 18px;
-      font: inherit;
-      font-weight: 700;
-      background: #255f85;
-      color: white;
-      cursor: pointer;
-    }
-    button:disabled {
-      opacity: 0.65;
-      cursor: wait;
-    }
-    label {
-      display: flex;
-      align-items: center;
-      gap: 8px;
-      color: #3c4043;
-    }
-    label input {
-      width: auto;
-    }
-    code {
-      overflow-wrap: anywhere;
-    }
-    .notice {
-      min-height: 24px;
-      margin-top: 18px;
-      font-weight: 700;
-    }
-    .fine {
-      margin-top: 26px;
-      font-size: 0.92rem;
-    }
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f4ef; color: #202124; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 32px 16px; box-sizing: border-box; }
+    main { width: min(820px, 100%); }
+    h1 { font-size: clamp(2rem, 5vw, 4rem); line-height: 1; margin: 0 0 16px; }
+    p { color: #5c5f64; line-height: 1.55; max-width: 68ch; }
+    form { display: grid; gap: 14px; margin-top: 28px; }
+    textarea, input { width: 100%; box-sizing: border-box; border: 1px solid #c8c3ba; border-radius: 8px; padding: 14px; font: inherit; background: #fffdfa; color: inherit; }
+    textarea { min-height: 160px; resize: vertical; }
+    .row { display: flex; flex-wrap: wrap; gap: 12px; align-items: center; }
+    button { border: 0; border-radius: 8px; padding: 12px 18px; font: inherit; font-weight: 700; background: #255f85; color: white; cursor: pointer; }
+    button:disabled { opacity: 0.65; cursor: wait; }
+    label { display: flex; align-items: center; gap: 8px; color: #3c4043; }
+    label input { width: auto; }
+    code { overflow-wrap: anywhere; }
+    .notice { min-height: 24px; margin-top: 18px; font-weight: 700; }
+    .fine { margin-top: 26px; font-size: 0.92rem; }
     @media (prefers-color-scheme: dark) {
-      :root {
-        background: #171817;
-        color: #f2f0ea;
-      }
-      p, label {
-        color: #c9c5bc;
-      }
-      textarea, input {
-        background: #202220;
-        border-color: #4b4d48;
-      }
-      button {
-        background: #4f95bd;
-      }
+      :root { background: #171817; color: #f2f0ea; }
+      p, label { color: #c9c5bc; }
+      textarea, input { background: #202220; border-color: #4b4d48; }
+      button { background: #4f95bd; }
     }
   </style>
 </head>
@@ -254,7 +171,6 @@ function page(config, message = "") {
     const token = ${JSON.stringify(config.token)};
     const form = document.querySelector("#add-form");
     const notice = document.querySelector("#notice");
-
     form.addEventListener("submit", async (event) => {
       event.preventDefault();
       const button = form.querySelector("button");
@@ -263,14 +179,8 @@ function page(config, message = "") {
       try {
         const response = await fetch("/api/add", {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-bridge-token": token
-          },
-          body: JSON.stringify({
-            text: document.querySelector("#links").value,
-            paused: document.querySelector("#paused").checked
-          })
+          headers: { "content-type": "application/json", "x-bridge-token": token },
+          body: JSON.stringify({ text: document.querySelector("#links").value, paused: document.querySelector("#paused").checked })
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Add failed");
@@ -299,142 +209,35 @@ function relayPage(config, message = "") {
   <meta name="viewport" content="width=device-width, initial-scale=1">
   <title>Torrent Relay</title>
   <style>
-    :root {
-      color-scheme: light dark;
-      font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
-      background: #f7f4ef;
-      color: #202124;
-    }
-    body {
-      margin: 0;
-      min-height: 100vh;
-      display: grid;
-      place-items: start center;
-      padding: 32px 16px;
-      box-sizing: border-box;
-    }
-    main {
-      width: min(900px, 100%);
-    }
-    h1 {
-      font-size: clamp(2rem, 5vw, 4rem);
-      line-height: 1;
-      margin: 0 0 16px;
-      letter-spacing: 0;
-    }
-    p {
-      color: #5c5f64;
-      line-height: 1.55;
-      max-width: 68ch;
-    }
-    .tabs {
-      display: flex;
-      gap: 4px;
-      border-bottom: 1px solid #d6d2c9;
-      margin-top: 22px;
-    }
-    .tab {
-      background: transparent;
-      color: #5c5f64;
-      border: 0;
-      border-bottom: 3px solid transparent;
-      padding: 10px 14px;
-      font: inherit;
-      font-weight: 600;
-      cursor: pointer;
-      border-radius: 0;
-    }
-    .tab.active {
-      color: #202124;
-      border-bottom-color: #255f85;
-    }
+    :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f4ef; color: #202124; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: start center; padding: 32px 16px; box-sizing: border-box; }
+    main { width: min(900px, 100%); }
+    h1 { font-size: clamp(2rem, 5vw, 4rem); line-height: 1; margin: 0 0 16px; }
+    p { color: #5c5f64; line-height: 1.55; max-width: 68ch; }
+    .tabs { display: flex; gap: 4px; border-bottom: 1px solid #d6d2c9; margin-top: 22px; }
+    .tab { background: transparent; color: #5c5f64; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font: inherit; font-weight: 600; cursor: pointer; border-radius: 0; }
+    .tab.active { color: #202124; border-bottom-color: #255f85; }
     .panel.hidden { display: none; }
-    form {
-      display: grid;
-      gap: 14px;
-      margin-top: 22px;
-    }
-    textarea, input, select {
-      width: 100%;
-      box-sizing: border-box;
-      border: 1px solid #c8c3ba;
-      border-radius: 8px;
-      padding: 12px;
-      font: inherit;
-      background: #fffdfa;
-      color: inherit;
-    }
-    textarea {
-      min-height: 180px;
-      resize: vertical;
-    }
-    label.field {
-      display: grid;
-      gap: 6px;
-      font-size: 0.92rem;
-      color: #3c4043;
-    }
-    .row {
-      display: grid;
-      grid-template-columns: 1fr 1fr;
-      gap: 12px;
-    }
-    button {
-      width: fit-content;
-      border: 0;
-      border-radius: 8px;
-      padding: 12px 18px;
-      font: inherit;
-      font-weight: 700;
-      background: #255f85;
-      color: white;
-      cursor: pointer;
-    }
-    button:disabled {
-      opacity: 0.65;
-      cursor: wait;
-    }
-    .notice {
-      min-height: 24px;
-      margin-top: 14px;
-      font-weight: 700;
-    }
-    table.results {
-      width: 100%;
-      border-collapse: collapse;
-      margin-top: 14px;
-      font-size: 0.92rem;
-    }
-    table.results th, table.results td {
-      text-align: left;
-      padding: 8px 6px;
-      border-bottom: 1px solid #e3dfd6;
-      vertical-align: top;
-    }
-    table.results th {
-      font-weight: 700;
-      color: #3c4043;
-    }
+    form { display: grid; gap: 14px; margin-top: 22px; }
+    textarea, input, select { width: 100%; box-sizing: border-box; border: 1px solid #c8c3ba; border-radius: 8px; padding: 12px; font: inherit; background: #fffdfa; color: inherit; }
+    textarea { min-height: 180px; resize: vertical; }
+    label.field { display: grid; gap: 6px; font-size: 0.92rem; color: #3c4043; }
+    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    button { width: fit-content; border: 0; border-radius: 8px; padding: 12px 18px; font: inherit; font-weight: 700; background: #255f85; color: white; cursor: pointer; }
+    button:disabled { opacity: 0.65; cursor: wait; }
+    .notice { min-height: 24px; margin-top: 14px; font-weight: 700; }
+    table.results { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.92rem; }
+    table.results th, table.results td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e3dfd6; vertical-align: top; }
+    table.results th { font-weight: 700; color: #3c4043; }
     table.results td.right { text-align: right; }
     table.results a { color: inherit; }
     table.results tr:hover { background: rgba(0,0,0,0.04); }
-    .actions {
-      display: flex;
-      gap: 12px;
-      align-items: center;
-      margin-top: 14px;
-    }
+    .actions { display: flex; gap: 12px; align-items: center; margin-top: 14px; }
     .actions.hidden { display: none; }
     @media (prefers-color-scheme: dark) {
-      :root {
-        background: #171817;
-        color: #f2f0ea;
-      }
+      :root { background: #171817; color: #f2f0ea; }
       p, label.field { color: #c9c5bc; }
-      textarea, input, select {
-        background: #202220;
-        border-color: #4b4d48;
-      }
+      textarea, input, select { background: #202220; border-color: #4b4d48; }
       button { background: #4f95bd; }
       .tabs { border-bottom-color: #3a3c38; }
       .tab { color: #c9c5bc; }
@@ -447,7 +250,7 @@ function relayPage(config, message = "") {
 <body>
   <main>
     <h1>Torrent relay</h1>
-    <p>Search 1337x, or paste a magnet / direct <code>.torrent</code> URL. Your home PC poller will pick it up and send it to qBittorrent.</p>
+    <p>Search 1337x or paste a magnet / direct <code>.torrent</code> URL. Search runs on your home PC (Cloudflare blocks Vercel) so your home poller must be online.</p>
 
     <div class="tabs" role="tablist">
       <button type="button" class="tab active" data-tab="search">Search 1337x</button>
@@ -522,9 +325,7 @@ function relayPage(config, message = "") {
     tabButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
         tabButtons.forEach((b) => b.classList.toggle("active", b === btn));
-        panels.forEach((p) =>
-          p.classList.toggle("hidden", p.dataset.panel !== btn.dataset.tab)
-        );
+        panels.forEach((p) => p.classList.toggle("hidden", p.dataset.panel !== btn.dataset.tab));
       });
     });
 
@@ -535,7 +336,6 @@ function relayPage(config, message = "") {
     const magnetTokenInput = document.querySelector("#magnet-token");
     searchTokenInput.value = tokenParam;
     magnetTokenInput.value = tokenParam;
-    // Keep them in sync if user retypes one.
     searchTokenInput.addEventListener("input", () => { magnetTokenInput.value = searchTokenInput.value; });
     magnetTokenInput.addEventListener("input", () => { searchTokenInput.value = magnetTokenInput.value; });
 
@@ -551,10 +351,7 @@ function relayPage(config, message = "") {
       try {
         const response = await fetch("/api/relay/add", {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-relay-token": magnetTokenInput.value
-          },
+          headers: { "content-type": "application/json", "x-relay-token": magnetTokenInput.value },
           body: JSON.stringify({
             text: document.querySelector("#links").value,
             type: document.querySelector("#magnet-type").value
@@ -599,6 +396,27 @@ function relayPage(config, message = "") {
     }
     resultsBody.addEventListener("change", updateQueueButton);
 
+    function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
+
+    async function pollResult(jobId, deadlineMs) {
+      let elapsed = 0;
+      while (Date.now() < deadlineMs) {
+        const r = await fetch("/api/relay/search/" + encodeURIComponent(jobId), {
+          headers: { "x-relay-token": searchTokenInput.value }
+        });
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error || "Poll failed");
+        if (body.status === "done") return body;
+        if (body.status === "failed") return body;
+        // Pending: keep waiting.
+        elapsed += 1500;
+        const note = elapsed > 6000 ? " (your home PC poller is doing the scraping)" : "";
+        searchNotice.textContent = "Searching..." + note;
+        await sleep(1500);
+      }
+      return { status: "timeout" };
+    }
+
     searchForm.addEventListener("submit", async (event) => {
       event.preventDefault();
       const query = document.querySelector("#search-query").value.trim();
@@ -607,28 +425,38 @@ function relayPage(config, message = "") {
       if (!query) { searchNotice.textContent = "Enter a search query."; return; }
       const button = searchForm.querySelector("button");
       button.disabled = true;
-      searchNotice.textContent = "Searching 1337x...";
+      searchNotice.textContent = "Submitting search to relay...";
       resultsBody.innerHTML = "";
       resultsTable.hidden = true;
       actionsBox.classList.add("hidden");
       queueNotice.textContent = "";
       try {
-        const response = await fetch("/api/relay/search", {
+        const enqResp = await fetch("/api/relay/search", {
           method: "POST",
-          headers: {
-            "content-type": "application/json",
-            "x-relay-token": searchTokenInput.value
-          },
+          headers: { "content-type": "application/json", "x-relay-token": searchTokenInput.value },
           body: JSON.stringify({ query, type, limit })
         });
-        const body = await response.json();
-        if (!response.ok) throw new Error(body.error || "Search failed");
-        const results = Array.isArray(body.results) ? body.results : [];
+        const enqBody = await enqResp.json();
+        if (!enqResp.ok) throw new Error(enqBody.error || "Search submission failed");
+        const jobId = enqBody.jobId;
+        if (!jobId) throw new Error("No jobId returned");
+
+        const deadline = Date.now() + 60_000;
+        const final = await pollResult(jobId, deadline);
+        if (final.status === "timeout") {
+          searchNotice.textContent = "Timed out — make sure your home PC poller is running.";
+          return;
+        }
+        if (final.status === "failed") {
+          searchNotice.textContent = "Search failed: " + (final.error || "unknown error");
+          return;
+        }
+        const results = Array.isArray(final.results) ? final.results : [];
         if (results.length === 0) {
           searchNotice.textContent = "No results.";
           return;
         }
-        searchNotice.textContent = "Found " + results.length + " result(s). Pick one or more, then Queue selected.";
+        searchNotice.textContent = "Found " + results.length + " result(s). Tick the ones you want and Queue selected.";
         for (const r of results) {
           const tr = document.createElement("tr");
           tr.innerHTML = [
@@ -664,10 +492,7 @@ function relayPage(config, message = "") {
         try {
           const r = await fetch("/api/relay/add", {
             method: "POST",
-            headers: {
-              "content-type": "application/json",
-              "x-relay-token": searchTokenInput.value
-            },
+            headers: { "content-type": "application/json", "x-relay-token": searchTokenInput.value },
             body: JSON.stringify({ text: magnet, type })
           });
           if (r.ok) { ok++; cb.checked = false; }
@@ -778,22 +603,57 @@ export function createRequestHandler(config) {
           return send(res, 200, { id: item.id, links: item.links.length, type: item.type });
         }
 
+        // --- Search job lifecycle -----------------------------------------
+
+        // 1) UI enqueues a search.
         if (req.method === "POST" && url.pathname === "/api/relay/search") {
           verifyRelayRequest(req, config);
           const body = await readJson(req);
           const query = String(body.query || "").trim();
-          if (!query) {
-            return send(res, 400, { error: "query is required" });
-          }
+          if (!query) return send(res, 400, { error: "query is required" });
           const type = normalizeType(body.type);
           const limit = Math.max(1, Math.min(20, Number(body.limit) || 5));
-          try {
-            const results = await search1337x(query, { type, limit });
-            return send(res, 200, { results });
-          } catch (err) {
-            return send(res, 502, { error: err.message || "Search failed" });
-          }
+          const jobId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
+          const job = { id: jobId, query, type, limit, createdAt: new Date().toISOString() };
+          await relayStore.pushSearchJob(job);
+          await relayStore.setSearchResult(jobId, { status: "pending", createdAt: job.createdAt }, 600);
+          return send(res, 200, { jobId });
         }
+
+        // 2) Home-PC poller pulls the next search job.
+        if (req.method === "GET" && url.pathname === "/api/relay/search/jobs/next") {
+          verifyRelayRequest(req, config);
+          const job = await relayStore.popSearchJob();
+          return send(res, 200, { job: job || null });
+        }
+
+        // 3) Home-PC poller posts its result for a job.
+        if (req.method === "POST" && url.pathname.startsWith("/api/relay/search/jobs/")) {
+          verifyRelayRequest(req, config);
+          const rest = url.pathname.slice("/api/relay/search/jobs/".length);
+          const m = rest.match(/^([^/]+)\/result\/?$/);
+          if (!m) return send(res, 404, { error: "Not found" });
+          const jobId = decodeURIComponent(m[1]);
+          const body = await readJson(req);
+          const payload =
+            Array.isArray(body.results)
+              ? { status: "done", results: body.results }
+              : { status: "failed", error: String(body.error || "Search failed") };
+          await relayStore.setSearchResult(jobId, payload, 600);
+          return send(res, 200, { ok: true });
+        }
+
+        // 4) UI polls the result by jobId.
+        if (req.method === "GET" && url.pathname.startsWith("/api/relay/search/")) {
+          verifyRelayRequest(req, config);
+          const jobId = decodeURIComponent(url.pathname.slice("/api/relay/search/".length).replace(/\/$/, ""));
+          if (!jobId || jobId.includes("/")) return send(res, 404, { error: "Not found" });
+          const result = await relayStore.getSearchResult(jobId);
+          if (!result) return send(res, 404, { error: "jobId not found or expired" });
+          return send(res, 200, result);
+        }
+
+        // --- Torrent queue (existing) -------------------------------------
 
         if (req.method === "GET" && url.pathname === "/api/relay/poll") {
           verifyRelayRequest(req, config);

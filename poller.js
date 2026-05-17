@@ -4,6 +4,7 @@ import { addToQbittorrent } from "./src/qbittorrent.js";
 import { TmdbClient } from "./src/tmdb.js";
 import { parseDisplayName, parseSeriesInfo } from "./src/torrentName.js";
 import { buildTvSavepath } from "./src/tvFolder.js";
+import { search1337x } from "./src/searchProviders/x1337.js";
 
 const DEFAULT_CONFIG = {
   qbittorrentUrl: "http://127.0.0.1:8080",
@@ -14,6 +15,7 @@ const DEFAULT_CONFIG = {
   relayUrl: "",
   relayToken: "",
   pollIntervalSeconds: 20,
+  pollSearchIntervalSeconds: 2,
   savePaths: {
     movie: "E:\\Downloads\\Movies",
     tvshow: "E:\\Downloads\\TV Shows",
@@ -46,6 +48,11 @@ async function loadConfig() {
         fileConfig.pollIntervalSeconds ||
         DEFAULT_CONFIG.pollIntervalSeconds
     ),
+    pollSearchIntervalSeconds: Number(
+      process.env.POLL_SEARCH_INTERVAL_SECONDS ||
+        fileConfig.pollSearchIntervalSeconds ||
+        DEFAULT_CONFIG.pollSearchIntervalSeconds
+    ),
     savePaths: {
       ...DEFAULT_CONFIG.savePaths,
       ...(fileConfig.savePaths || {})
@@ -72,8 +79,6 @@ function resolveSavePath(config, type) {
   return paths.other || DEFAULT_CONFIG.savePaths.other;
 }
 
-// Walk the links until we find one with a usable display name. Magnets with
-// a "dn" parameter are preferred; direct .torrent URLs work as a fallback.
 function firstDisplayName(links) {
   if (!Array.isArray(links)) return null;
   for (const link of links) {
@@ -83,9 +88,6 @@ function firstDisplayName(links) {
   return null;
 }
 
-// An override entry is either a bare TMDB id (number/string), or
-// { tmdbId, defaultSeason } where defaultSeason is used when the parser cannot
-// extract a season number (e.g. anime absolute-episode releases).
 function readOverride(overrides, title) {
   if (!overrides || !title) return { tmdbId: null, defaultSeason: null };
   const raw = overrides[title.toLowerCase()];
@@ -116,10 +118,6 @@ function buildLabel(show, effectiveSeason, isCompleteSeries, usedDefaultSeason) 
   return label;
 }
 
-// Compute the right savepath + contentLayout for a TV-show queue item.
-// Returns { savepath, contentLayout, label }. Falls back to base path with no
-// layout override if any step is unhappy, so a bad parse or TMDB outage never
-// blocks the torrent.
 async function planTvShow(item, config, tmdb) {
   const baseDir = resolveSavePath(config, "tvshow");
   const fallback = { savepath: baseDir, contentLayout: undefined, label: "unresolved" };
@@ -146,8 +144,6 @@ async function planTvShow(item, config, tmdb) {
 
   if (!show || !show.name) return fallback;
 
-  // Use the parser's season if found; otherwise fall back to the override's
-  // defaultSeason (anime-friendly), otherwise null (show root).
   const usedDefaultSeason = info.season === null && defaultSeason !== null && !info.isCompleteSeries;
   const effectiveSeason = info.season !== null ? info.season : (info.isCompleteSeries ? null : defaultSeason);
 
@@ -175,7 +171,7 @@ function relayEndpoint(config, path) {
   return base + path;
 }
 
-async function poll(config) {
+async function pollTorrents(config) {
   const response = await fetch(relayEndpoint(config, "/api/relay/poll"), {
     headers: { "x-relay-token": config.relayToken }
   });
@@ -188,11 +184,8 @@ async function poll(config) {
   return body.items || [];
 }
 
-async function ack(config, ids) {
-  if (ids.length === 0) {
-    return;
-  }
-
+async function ackTorrents(config, ids) {
+  if (ids.length === 0) return;
   const response = await fetch(relayEndpoint(config, "/api/relay/ack"), {
     method: "POST",
     headers: {
@@ -201,31 +194,50 @@ async function ack(config, ids) {
     },
     body: JSON.stringify({ ids })
   });
-
   const body = await response.json();
-  if (!response.ok) {
-    throw new Error(body.error || "Relay ack failed: " + response.status);
+  if (!response.ok) throw new Error(body.error || "Relay ack failed: " + response.status);
+}
+
+async function fetchNextSearchJob(config) {
+  const r = await fetch(relayEndpoint(config, "/api/relay/search/jobs/next"), {
+    headers: { "x-relay-token": config.relayToken }
+  });
+  if (!r.ok) {
+    // 404 or 5xx -> swallow and retry next tick; log non-trivial errors only.
+    if (r.status !== 404) {
+      const text = await r.text().catch(() => "");
+      throw new Error("search job fetch failed: " + r.status + " " + text.slice(0, 120));
+    }
+    return null;
+  }
+  const body = await r.json();
+  return body.job || null;
+}
+
+async function postSearchResult(config, jobId, payload) {
+  const r = await fetch(
+    relayEndpoint(config, "/api/relay/search/jobs/" + encodeURIComponent(jobId) + "/result"),
+    {
+      method: "POST",
+      headers: {
+        "content-type": "application/json",
+        "x-relay-token": config.relayToken
+      },
+      body: JSON.stringify(payload)
+    }
+  );
+  if (!r.ok) {
+    const text = await r.text().catch(() => "");
+    throw new Error("posting search result failed: " + r.status + " " + text.slice(0, 120));
   }
 }
 
-async function main() {
-  const config = await loadConfig();
-  if (!config.relayUrl || !config.relayToken) {
-    throw new Error("Set relayUrl and relayToken in config.json, or RELAY_URL and RELAY_TOKEN.");
-  }
-
-  const tmdb = new TmdbClient(config.tmdb);
-  if (!tmdb.isConfigured()) {
-    console.log(
-      "TMDB credentials missing - TV shows will be saved to the base TV folder without per-show subdirectories."
-    );
-  }
-
-  console.log("Polling " + config.relayUrl + " every " + config.pollIntervalSeconds + "s.");
-
+// Loop 1: torrent queue (existing behavior, just renamed).
+async function torrentsLoop(config, tmdb) {
+  console.log("Polling " + config.relayUrl + " for torrents every " + config.pollIntervalSeconds + "s.");
   while (true) {
     try {
-      const items = await poll(config);
+      const items = await pollTorrents(config);
       for (const item of items) {
         let savepath = resolveSavePath(config, item.type);
         let contentLayout;
@@ -244,7 +256,7 @@ async function main() {
           savepath,
           contentLayout
         });
-        await ack(config, [item.id]);
+        await ackTorrents(config, [item.id]);
         const layoutNote = contentLayout ? ", layout=" + contentLayout : "";
         console.log(
           "Added relay item " + item.id + " (" + item.links.length + " link(s), " +
@@ -252,11 +264,57 @@ async function main() {
         );
       }
     } catch (error) {
-      console.error(error.message);
+      console.error("torrents loop:", error.message);
     }
-
     await sleep(config.pollIntervalSeconds * 1000);
   }
+}
+
+// Loop 2: search-job queue. Runs every pollSearchIntervalSeconds.
+async function searchLoop(config) {
+  console.log("Polling for search jobs every " + config.pollSearchIntervalSeconds + "s.");
+  while (true) {
+    try {
+      const job = await fetchNextSearchJob(config);
+      if (!job) {
+        await sleep(config.pollSearchIntervalSeconds * 1000);
+        continue;
+      }
+      console.log(
+        "Search job " + job.id + ": " + JSON.stringify({ query: job.query, type: job.type, limit: job.limit })
+      );
+      try {
+        const results = await search1337x(job.query, { type: job.type, limit: job.limit });
+        await postSearchResult(config, job.id, { results });
+        console.log("Search job " + job.id + " -> " + results.length + " result(s).");
+      } catch (err) {
+        const message = err.message || "Search failed";
+        console.error("Search job " + job.id + " failed: " + message);
+        await postSearchResult(config, job.id, { error: message });
+      }
+    } catch (error) {
+      console.error("search loop:", error.message);
+      await sleep(config.pollSearchIntervalSeconds * 1000);
+    }
+  }
+}
+
+async function main() {
+  const config = await loadConfig();
+  if (!config.relayUrl || !config.relayToken) {
+    throw new Error("Set relayUrl and relayToken in config.json, or RELAY_URL and RELAY_TOKEN.");
+  }
+
+  const tmdb = new TmdbClient(config.tmdb);
+  if (!tmdb.isConfigured()) {
+    console.log(
+      "TMDB credentials missing - TV shows will be saved to the base TV folder without per-show subdirectories."
+    );
+  }
+
+  // Run torrent and search loops concurrently. If either throws an
+  // unrecoverable error it'll bubble up and exit the process.
+  await Promise.all([torrentsLoop(config, tmdb), searchLoop(config)]);
 }
 
 main().catch((error) => {
