@@ -565,6 +565,16 @@ export function createRequestHandler(config) {
   };
 }
 
+let defaultHandler;
+
+export default async function serverHandler(req, res) {
+  if (!defaultHandler) {
+    defaultHandler = createRequestHandler(await loadConfig());
+  }
+
+  return await defaultHandler(req, res);
+}
+
 async function main() {
   const config = await loadConfig();
   const server = http.createServer(createRequestHandler(config));
