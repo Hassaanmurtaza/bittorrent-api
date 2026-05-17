@@ -14,7 +14,8 @@
   "savePaths": {
     "movie": "E:\\Downloads\\Movies",
     "tvshow": "E:\\Downloads\\TV Shows",
-    "other": "E:\\Downloads\\Others"
+    "other": "E:\\Downloads\\Others",
+    "game": "E:\\Downloads\\Games"
   },
   "tmdb": {
     "apiReadToken": "your-tmdb-v4-read-access-token",

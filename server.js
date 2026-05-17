@@ -266,6 +266,7 @@ function relayPage(config, message = "") {
             <select id="search-type">
               <option value="movie">Movie</option>
               <option value="tvshow">TV Show</option>
+              <option value="game">Game</option>
               <option value="other">Other</option>
             </select>
           </label>
@@ -283,6 +284,7 @@ function relayPage(config, message = "") {
             <select id="search-sort">
               <option value="seeders" selected>Seeds (desc)</option>
               <option value="size">Size (desc), then seeds</option>
+              <option value="date">Date (desc), then seeds</option>
             </select>
           </label>
         </div>
@@ -318,6 +320,7 @@ function relayPage(config, message = "") {
           <select id="magnet-type">
             <option value="movie">Movie</option>
             <option value="tvshow">TV Show</option>
+            <option value="game">Game</option>
             <option value="other">Other</option>
           </select>
         </label>
@@ -543,7 +546,7 @@ function verifyRelayRequest(req, config) {
   return url;
 }
 
-const ALLOWED_TYPES = new Set(["movie", "tvshow", "other"]);
+const ALLOWED_TYPES = new Set(["movie", "tvshow", "game", "other"]);
 
 function normalizeType(value) {
   if (typeof value !== "string") return "other";
@@ -553,6 +556,9 @@ function normalizeType(value) {
   }
   if (cleaned === "movie" || cleaned === "movies" || cleaned === "film") {
     return "movie";
+  }
+  if (cleaned === "game" || cleaned === "games" || cleaned === "pcgame" || cleaned === "pcgames" || cleaned === "videogame") {
+    return "game";
   }
   if (ALLOWED_TYPES.has(cleaned)) return cleaned;
   return "other";
@@ -623,7 +629,7 @@ export function createRequestHandler(config) {
           if (!query) return send(res, 400, { error: "query is required" });
           const type = normalizeType(body.type);
           const limit = Math.max(1, Math.min(100, Number(body.limit) || 30));
-          const sortBy = body.sortBy === "size" ? "size" : "seeders";
+          const sortBy = body.sortBy === "size" ? "size" : body.sortBy === "date" ? "date" : "seeders";
           const jobId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
           const job = { id: jobId, query, type, limit, sortBy, createdAt: new Date().toISOString() };
           await relayStore.pushSearchJob(job);

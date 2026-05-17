@@ -21,6 +21,7 @@ const DEFAULT_CONFIG = {
   savePaths: {
     movie: "E:\\Downloads\\Movies",
     tvshow: "E:\\Downloads\\TV Shows",
+    game: "E:\\Downloads\\Games",
     other: "E:\\Downloads\\Others"
   },
   tmdb: {
@@ -80,6 +81,7 @@ function resolveSavePath(config, type) {
   const paths = config.savePaths || DEFAULT_CONFIG.savePaths;
   if (type === "movie" && paths.movie) return paths.movie;
   if (type === "tvshow" && paths.tvshow) return paths.tvshow;
+  if (type === "game" && paths.game) return paths.game;
   return paths.other || DEFAULT_CONFIG.savePaths.other;
 }
 

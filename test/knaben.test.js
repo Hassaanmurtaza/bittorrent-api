@@ -175,3 +175,48 @@ test("searchKnaben: sortBy=seeders is the default and uses leechers as tiebreak"
     globalThis.fetch = origFetch;
   }
 });
+test("searchKnaben: sortBy=date sorts by date desc with seeders as tiebreak", async () => {
+  const origFetch = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (url, init) => {
+    capturedBody = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({
+      total: { value: 3 },
+      hits: [
+        { title: "Old 1000s", seeders: 1000, peers: 0, bytes: 1e9,
+          magnetUrl: "magnet:?xt=urn:btih:AA", hash: "AA", tracker: "x", details: "",
+          date: "2020-01-15T00:00:00+00:00" },
+        { title: "Fresh A 100s", seeders: 100, peers: 0, bytes: 1e9,
+          magnetUrl: "magnet:?xt=urn:btih:BB", hash: "BB", tracker: "x", details: "",
+          date: "2025-06-01T00:00:00+00:00" },
+        { title: "Fresh B 500s", seeders: 500, peers: 0, bytes: 1e9,
+          magnetUrl: "magnet:?xt=urn:btih:CC", hash: "CC", tracker: "x", details: "",
+          date: "2025-06-01T00:00:00+00:00" }
+      ]
+    }), text: async () => "" };
+  };
+  try {
+    const results = await searchKnaben("x", { type: "movie", limit: 10, sortBy: "date" });
+    assert.equal(capturedBody.order_by, "date");
+    assert.equal(results[0].name, "Fresh B 500s"); // same date as B, higher seeds wins
+    assert.equal(results[1].name, "Fresh A 100s");
+    assert.equal(results[2].name, "Old 1000s");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("searchKnaben: game type sends the games category", async () => {
+  const origFetch = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (url, init) => {
+    capturedBody = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({ total: { value: 0 }, hits: [] }), text: async () => "" };
+  };
+  try {
+    await searchKnaben("doom", { type: "game", limit: 10 });
+    assert.deepEqual(capturedBody.categories, [4000000]);
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});

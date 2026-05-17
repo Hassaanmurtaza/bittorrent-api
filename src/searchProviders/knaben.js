@@ -30,6 +30,7 @@ const KNABEN_URL = "https://api.knaben.org/v1";
 const DEFAULT_CATEGORIES = {
   movie: [3000000],
   tvshow: [2000000],
+  game: [4000000],
   other: []
 };
 
@@ -94,7 +95,10 @@ export async function searchKnaben(query, options = {}) {
       ? categories
       : DEFAULT_CATEGORIES[type] || [];
 
-  const order_by = sortBy === "size" ? "bytes" : "seeders";
+  const order_by =
+    sortBy === "size" ? "bytes" :
+    sortBy === "date" ? "date" :
+    "seeders";
   const body = {
     query: query.trim(),
     order_by,
@@ -150,6 +154,11 @@ export async function searchKnaben(query, options = {}) {
   // predictable regardless of what Knaben returned.
   if (sortBy === "size") {
     deduped.sort((a, b) => (b.sizeBytes - a.sizeBytes) || (b.seeds - a.seeds));
+  } else if (sortBy === "date") {
+    // r.date is "YYYY-MM-DD"; lexical sort matches chronological order.
+    deduped.sort(
+      (a, b) => (a.date < b.date ? 1 : a.date > b.date ? -1 : 0) || (b.seeds - a.seeds)
+    );
   } else {
     deduped.sort((a, b) => (b.seeds - a.seeds) || (b.leeches - a.leeches));
   }
