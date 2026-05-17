@@ -300,6 +300,7 @@ function relayPage(config, message = "") {
             <th class="right">Seeds</th>
             <th class="right">Leeches</th>
             <th>Size</th>
+            <th>ETA</th>
             <th>Date</th>
             <th>Uploader</th>
           </tr>
@@ -478,6 +479,7 @@ function relayPage(config, message = "") {
             '<td class="right">', String(r.seeds || 0), '</td>',
             '<td class="right">', String(r.leeches || 0), '</td>',
             '<td>', escAttr(r.sizeText || fmtBytes(r.sizeBytes)), '</td>',
+            '<td title="', escAttr(r.estimatedMBps ? (r.estimatedMBps + " MB/s estimated") : ""), '">', escAttr(r.etaText || ""), '</td>',
             '<td>', escAttr(r.date || ""), '</td>',
             '<td>', escAttr(r.uploader || ""), '</td>'
           ].join("");

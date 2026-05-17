@@ -7,6 +7,7 @@ import { buildTvSavepath } from "./src/tvFolder.js";
 import { search1337x } from "./src/searchProviders/x1337.js";
 import { searchApibay } from "./src/searchProviders/apibay.js";
 import { searchKnaben } from "./src/searchProviders/knaben.js";
+import { annotateEta } from "./src/eta.js";
 
 const DEFAULT_CONFIG = {
   qbittorrentUrl: "http://127.0.0.1:8080",
@@ -30,7 +31,8 @@ const DEFAULT_CONFIG = {
     language: "en-CA"
   },
   tvShowOverrides: {},
-  searchProvider: "knaben"
+  searchProvider: "knaben",
+  bandwidth: { downloadMbps: 2350, perSeedMbps: 8 }
 };
 
 async function loadConfig() {
@@ -73,7 +75,11 @@ async function loadConfig() {
       ...DEFAULT_CONFIG.tvShowOverrides,
       ...(fileConfig.tvShowOverrides || {})
     },
-    searchProvider: (process.env.SEARCH_PROVIDER || fileConfig.searchProvider || DEFAULT_CONFIG.searchProvider).toLowerCase()
+    searchProvider: (process.env.SEARCH_PROVIDER || fileConfig.searchProvider || DEFAULT_CONFIG.searchProvider).toLowerCase(),
+    bandwidth: {
+      ...DEFAULT_CONFIG.bandwidth,
+      ...(fileConfig.bandwidth || {})
+    }
   };
 }
 
@@ -296,13 +302,17 @@ async function searchLoop(config) {
           providerName === "1337x" ? search1337x :
           providerName === "apibay" ? searchApibay :
           searchKnaben;
-        const results = await runSearch(job.query, {
+        const rawResults = await runSearch(job.query, {
           type: job.type,
           limit: job.limit,
           sortBy: job.sortBy || "seeders"
         });
+        const bw = config.bandwidth || {};
+        const results = rawResults.map((r) =>
+          annotateEta(r, bw.downloadMbps, bw.perSeedMbps)
+        );
         await postSearchResult(config, job.id, { results });
-        console.log("Search job " + job.id + " -> " + results.length + " result(s).");
+        console.log("Search job " + job.id + " -> " + results.length + " result(s) annotated with ETA at " + (config.bandwidth?.downloadMbps || 2350) + " Mbps cap).");
       } catch (err) {
         const message = err.message || "Search failed";
         console.error("Search job " + job.id + " failed: " + message);

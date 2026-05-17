@@ -31,5 +31,9 @@
     }
   },
   "searchProvider": "knaben",
-  "_searchProvider_comment": "knaben | apibay | 1337x. knaben aggregates many indexers via api.knaben.org."
+  "_searchProvider_comment": "knaben | apibay | 1337x. knaben aggregates many indexers via api.knaben.org.",
+  "bandwidth": {
+    "downloadMbps": 2350,
+    "perSeedMbps": 8
+  }
 }
