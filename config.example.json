@@ -7,6 +7,7 @@
   "token": "change-this-to-a-long-random-string",
   "relayUrl": "https://your-public-relay.example",
   "relayToken": "change-this-to-a-different-long-random-string",
+  "queueKey": "qbittorrent-relay-queue",
   "pollIntervalSeconds": 20,
   "defaultCategory": "",
   "startPaused": false
