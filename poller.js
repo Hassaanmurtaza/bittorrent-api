@@ -294,7 +294,11 @@ async function searchLoop(config) {
           providerName === "1337x" ? search1337x :
           providerName === "apibay" ? searchApibay :
           searchKnaben;
-        const results = await runSearch(job.query, { type: job.type, limit: job.limit });
+        const results = await runSearch(job.query, {
+          type: job.type,
+          limit: job.limit,
+          sortBy: job.sortBy || "seeders"
+        });
         await postSearchResult(config, job.id, { results });
         console.log("Search job " + job.id + " -> " + results.length + " result(s).");
       } catch (err) {

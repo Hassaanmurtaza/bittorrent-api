@@ -222,7 +222,7 @@ function relayPage(config, message = "") {
     textarea, input, select { width: 100%; box-sizing: border-box; border: 1px solid #c8c3ba; border-radius: 8px; padding: 12px; font: inherit; background: #fffdfa; color: inherit; }
     textarea { min-height: 180px; resize: vertical; }
     label.field { display: grid; gap: 6px; font-size: 0.92rem; color: #3c4043; }
-    .row { display: grid; grid-template-columns: 1fr 1fr; gap: 12px; }
+    .row { display: grid; grid-template-columns: repeat(3, 1fr); gap: 12px; }
     button { width: fit-content; border: 0; border-radius: 8px; padding: 12px 18px; font: inherit; font-weight: 700; background: #255f85; color: white; cursor: pointer; }
     button:disabled { opacity: 0.65; cursor: wait; }
     .notice { min-height: 24px; margin-top: 14px; font-weight: 700; }
@@ -275,6 +275,14 @@ function relayPage(config, message = "") {
               <option value="10">10</option>
               <option value="30" selected>30</option>
               <option value="50">50</option>
+              <option value="100">100</option>
+            </select>
+          </label>
+          <label class="field">
+            Sort
+            <select id="search-sort">
+              <option value="seeders" selected>Seeds (desc)</option>
+              <option value="size">Size (desc), then seeds</option>
             </select>
           </label>
         </div>
@@ -422,7 +430,8 @@ function relayPage(config, message = "") {
       event.preventDefault();
       const query = document.querySelector("#search-query").value.trim();
       const type = document.querySelector("#search-type").value;
-      const limit = Number(document.querySelector("#search-limit").value) || 5;
+      const limit = Number(document.querySelector("#search-limit").value) || 30;
+      const sortBy = document.querySelector("#search-sort").value || "seeders";
       if (!query) { searchNotice.textContent = "Enter a search query."; return; }
       const button = searchForm.querySelector("button");
       button.disabled = true;
@@ -435,7 +444,7 @@ function relayPage(config, message = "") {
         const enqResp = await fetch("/api/relay/search", {
           method: "POST",
           headers: { "content-type": "application/json", "x-relay-token": searchTokenInput.value },
-          body: JSON.stringify({ query, type, limit })
+          body: JSON.stringify({ query, type, limit, sortBy })
         });
         const enqBody = await enqResp.json();
         if (!enqResp.ok) throw new Error(enqBody.error || "Search submission failed");
@@ -613,9 +622,10 @@ export function createRequestHandler(config) {
           const query = String(body.query || "").trim();
           if (!query) return send(res, 400, { error: "query is required" });
           const type = normalizeType(body.type);
-          const limit = Math.max(1, Math.min(20, Number(body.limit) || 5));
+          const limit = Math.max(1, Math.min(100, Number(body.limit) || 30));
+          const sortBy = body.sortBy === "size" ? "size" : "seeders";
           const jobId = `${Date.now()}-${randomBytes(4).toString("hex")}`;
-          const job = { id: jobId, query, type, limit, createdAt: new Date().toISOString() };
+          const job = { id: jobId, query, type, limit, sortBy, createdAt: new Date().toISOString() };
           await relayStore.pushSearchJob(job);
           await relayStore.setSearchResult(jobId, { status: "pending", createdAt: job.createdAt }, 600);
           return send(res, 200, { jobId });

@@ -76,6 +76,7 @@ export async function searchKnaben(query, options = {}) {
     hideUnsafe = false,
     hideXxx = true,
     categories,
+    sortBy = "seeders",
     timeoutMs = 12000
   } = options;
 
@@ -93,9 +94,10 @@ export async function searchKnaben(query, options = {}) {
       ? categories
       : DEFAULT_CATEGORIES[type] || [];
 
+  const order_by = sortBy === "size" ? "bytes" : "seeders";
   const body = {
     query: query.trim(),
-    order_by: "seeders",
+    order_by,
     order_direction: "desc",
     size: fetchSize,
     from: 0,
@@ -133,9 +135,8 @@ export async function searchKnaben(query, options = {}) {
     const m = mapKnabenHit(hit);
     if (m && m.seeds >= minSeeds) mapped.push(m);
   }
-  // Knaben already returned them sorted by seeders desc, but de-dupe by
-  // info-hash (extracted from the magnet) and keep the first occurrence so
-  // multiple trackers carrying the same torrent collapse into one row.
+  // De-dupe by info-hash (extracted from the magnet). Multiple trackers
+  // carrying the same torrent collapse into one row.
   const seenHashes = new Set();
   const deduped = [];
   for (const r of mapped) {
@@ -144,7 +145,13 @@ export async function searchKnaben(query, options = {}) {
     if (seenHashes.has(key)) continue;
     seenHashes.add(key);
     deduped.push(r);
-    if (deduped.length >= cap) break;
   }
-  return deduped;
+  // Apply final sort with a stable secondary key so the ranking is
+  // predictable regardless of what Knaben returned.
+  if (sortBy === "size") {
+    deduped.sort((a, b) => (b.sizeBytes - a.sizeBytes) || (b.seeds - a.seeds));
+  } else {
+    deduped.sort((a, b) => (b.seeds - a.seeds) || (b.leeches - a.leeches));
+  }
+  return deduped.slice(0, cap);
 }

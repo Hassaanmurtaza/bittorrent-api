@@ -120,3 +120,58 @@ test("searchKnaben: filters out 0-seed dead torrents", async () => {
     globalThis.fetch = origFetch;
   }
 });
+test("searchKnaben: sortBy=size sorts by size desc with seeders as tiebreak", async () => {
+  const origFetch = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (url, init) => {
+    capturedBody = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({
+      total: { value: 3 },
+      hits: [
+        { title: "Big A 600s", seeders: 600, peers: 10, bytes: 8e9,
+          magnetUrl: "magnet:?xt=urn:btih:AA", hash: "AA", tracker: "1337x", details: "" },
+        { title: "Big B 100s", seeders: 100, peers: 5, bytes: 8e9,
+          magnetUrl: "magnet:?xt=urn:btih:BB", hash: "BB", tracker: "tpb", details: "" },
+        { title: "Smol 1000s", seeders: 1000, peers: 50, bytes: 1e9,
+          magnetUrl: "magnet:?xt=urn:btih:CC", hash: "CC", tracker: "yts", details: "" }
+      ]
+    }), text: async () => "" };
+  };
+  try {
+    const results = await searchKnaben("x", { type: "movie", limit: 10, sortBy: "size" });
+    assert.equal(capturedBody.order_by, "bytes");
+    assert.equal(results[0].name, "Big A 600s"); // size 8GB, seeders 600
+    assert.equal(results[1].name, "Big B 100s"); // size 8GB, seeders 100 (tiebreak)
+    assert.equal(results[2].name, "Smol 1000s"); // size 1GB last
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
+
+test("searchKnaben: sortBy=seeders is the default and uses leechers as tiebreak", async () => {
+  const origFetch = globalThis.fetch;
+  let capturedBody = null;
+  globalThis.fetch = async (url, init) => {
+    capturedBody = JSON.parse(init.body);
+    return { ok: true, status: 200, json: async () => ({
+      total: { value: 3 },
+      hits: [
+        { title: "Tied 100/5",  seeders: 100, peers: 5,  bytes: 1e9,
+          magnetUrl: "magnet:?xt=urn:btih:AA", hash: "AA", tracker: "x", details: "" },
+        { title: "Tied 100/20", seeders: 100, peers: 20, bytes: 1e9,
+          magnetUrl: "magnet:?xt=urn:btih:BB", hash: "BB", tracker: "x", details: "" },
+        { title: "Lower 50",    seeders: 50,  peers: 99, bytes: 9e9,
+          magnetUrl: "magnet:?xt=urn:btih:CC", hash: "CC", tracker: "x", details: "" }
+      ]
+    }), text: async () => "" };
+  };
+  try {
+    const results = await searchKnaben("x", { type: "movie", limit: 10 });
+    assert.equal(capturedBody.order_by, "seeders");
+    assert.equal(results[0].name, "Tied 100/20"); // higher leech tiebreak
+    assert.equal(results[1].name, "Tied 100/5");
+    assert.equal(results[2].name, "Lower 50");
+  } finally {
+    globalThis.fetch = origFetch;
+  }
+});
