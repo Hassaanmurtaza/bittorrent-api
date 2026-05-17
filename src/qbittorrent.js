@@ -49,6 +49,14 @@ export async function addToQbittorrent(config, urls, options = {}) {
   const paused = options.paused ?? config.startPaused;
   form.set("paused", paused ? "true" : "false");
 
+  if (options.savepath) {
+    // Disable Auto Torrent Management so qBittorrent actually honors the
+    // savepath we send. With autoTMM=true the path is derived from the
+    // category instead and our value is silently ignored.
+    form.set("autoTMM", "false");
+    form.set("savepath", options.savepath);
+  }
+
   const response = await qbFetch(config, "/api/v2/torrents/add", {
     method: "POST",
     headers: { cookie },

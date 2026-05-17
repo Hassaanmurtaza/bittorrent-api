@@ -10,5 +10,10 @@
   "queueKey": "qbittorrent-relay-queue",
   "pollIntervalSeconds": 20,
   "defaultCategory": "",
-  "startPaused": false
+  "startPaused": false,
+  "savePaths": {
+    "movie": "E:\\Downloads\\Movies",
+    "tvshow": "E:\\Downloads\\TV Shows",
+    "other": "E:\\Downloads\\Others"
+  }
 }

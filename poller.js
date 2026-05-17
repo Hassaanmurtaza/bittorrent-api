@@ -10,7 +10,12 @@ const DEFAULT_CONFIG = {
   startPaused: false,
   relayUrl: "",
   relayToken: "",
-  pollIntervalSeconds: 20
+  pollIntervalSeconds: 20,
+  savePaths: {
+    movie: "E:\\Downloads\\Movies",
+    tvshow: "E:\\Downloads\\TV Shows",
+    other: "E:\\Downloads\\Others"
+  }
 };
 
 async function loadConfig() {
@@ -30,8 +35,19 @@ async function loadConfig() {
       process.env.POLL_INTERVAL_SECONDS ||
         fileConfig.pollIntervalSeconds ||
         DEFAULT_CONFIG.pollIntervalSeconds
-    )
+    ),
+    savePaths: {
+      ...DEFAULT_CONFIG.savePaths,
+      ...(fileConfig.savePaths || {})
+    }
   };
+}
+
+function resolveSavePath(config, type) {
+  const paths = config.savePaths || DEFAULT_CONFIG.savePaths;
+  if (type === "movie" && paths.movie) return paths.movie;
+  if (type === "tvshow" && paths.tvshow) return paths.tvshow;
+  return paths.other || DEFAULT_CONFIG.savePaths.other;
 }
 
 function sleep(ms) {
@@ -88,12 +104,16 @@ async function main() {
     try {
       const items = await poll(config);
       for (const item of items) {
+        const savepath = resolveSavePath(config, item.type);
         await addToQbittorrent(config, item.links, {
           paused: item.paused,
-          category: item.category
+          category: item.category,
+          savepath
         });
         await ack(config, [item.id]);
-        console.log(`Added relay item ${item.id} (${item.links.length} link(s)).`);
+        console.log(
+          `Added relay item ${item.id} (${item.links.length} link(s), type=${item.type || "other"}, savepath=${savepath}).`
+        );
       }
     } catch (error) {
       console.error(error.message);

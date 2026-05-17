@@ -331,7 +331,7 @@ function relayPage(config, message = "") {
       gap: 14px;
       margin-top: 28px;
     }
-    textarea, input {
+    textarea, input, select {
       width: 100%;
       box-sizing: border-box;
       border: 1px solid #c8c3ba;
@@ -344,6 +344,12 @@ function relayPage(config, message = "") {
     textarea {
       min-height: 180px;
       resize: vertical;
+    }
+    label.field {
+      display: grid;
+      gap: 6px;
+      font-size: 0.92rem;
+      color: #3c4043;
     }
     button {
       width: fit-content;
@@ -370,10 +376,10 @@ function relayPage(config, message = "") {
         background: #171817;
         color: #f2f0ea;
       }
-      p {
+      p, label.field {
         color: #c9c5bc;
       }
-      textarea, input {
+      textarea, input, select {
         background: #202220;
         border-color: #4b4d48;
       }
@@ -389,6 +395,14 @@ function relayPage(config, message = "") {
     <p>Paste a magnet link or direct <code>.torrent</code> URL. Your home PC poller will pick it up and send it to qBittorrent.</p>
     <form id="relay-form">
       <textarea id="links" autocomplete="off" spellcheck="false" placeholder="magnet:?xt=urn:btih:..."></textarea>
+      <label class="field">
+        Type
+        <select id="type">
+          <option value="movie">Movie</option>
+          <option value="tvshow">TV Show</option>
+          <option value="other">Other</option>
+        </select>
+      </label>
       <input id="token" type="password" autocomplete="current-password" placeholder="Relay token">
       <button type="submit">Queue for home PC</button>
     </form>
@@ -413,12 +427,13 @@ function relayPage(config, message = "") {
             "x-relay-token": document.querySelector("#token").value
           },
           body: JSON.stringify({
-            text: document.querySelector("#links").value
+            text: document.querySelector("#links").value,
+            type: document.querySelector("#type").value
           })
         });
         const result = await response.json();
         if (!response.ok) throw new Error(result.error || "Queue failed");
-        notice.textContent = "Queued " + result.links + " link(s). Keep your home poller running.";
+        notice.textContent = "Queued " + result.links + " " + result.type + " link(s). Keep your home poller running.";
         document.querySelector("#links").value = "";
       } catch (error) {
         notice.textContent = error.message;
@@ -457,6 +472,22 @@ function verifyRelayRequest(req, config) {
   return url;
 }
 
+const ALLOWED_TYPES = new Set(["movie", "tvshow", "other"]);
+
+function normalizeType(value) {
+  if (typeof value !== "string") return "other";
+  const cleaned = value.trim().toLowerCase().replace(/[\s-]+/g, "");
+  // Accept a few common variants users might type.
+  if (cleaned === "tv" || cleaned === "tvshow" || cleaned === "tvshows" || cleaned === "show" || cleaned === "series") {
+    return "tvshow";
+  }
+  if (cleaned === "movie" || cleaned === "movies" || cleaned === "film") {
+    return "movie";
+  }
+  if (ALLOWED_TYPES.has(cleaned)) return cleaned;
+  return "other";
+}
+
 async function queueRelayItem(store, text, options = {}) {
   const links = extractSupportedLinks(text);
   if (links.length === 0) {
@@ -468,7 +499,8 @@ async function queueRelayItem(store, text, options = {}) {
     createdAt: new Date().toISOString(),
     links,
     paused: Boolean(options.paused),
-    category: options.category || ""
+    category: options.category || "",
+    type: normalizeType(options.type)
   };
 
   return await store.push(item);
@@ -505,9 +537,10 @@ export function createRequestHandler(config) {
           const body = await readJson(req);
           const item = await queueRelayItem(relayStore, body.text || body.url || "", {
             paused: Boolean(body.paused),
-            category: body.category
+            category: body.category,
+            type: body.type
           });
-          return send(res, 200, { id: item.id, links: item.links.length });
+          return send(res, 200, { id: item.id, links: item.links.length, type: item.type });
         }
 
         if (req.method === "GET" && url.pathname === "/api/relay/poll") {
