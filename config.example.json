@@ -35,5 +35,6 @@
   "bandwidth": {
     "downloadMbps": 2350,
     "perSeedMbps": 8
-  }
+  },
+  "pushStatsIntervalSeconds": 5
 }

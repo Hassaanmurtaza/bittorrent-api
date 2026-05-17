@@ -261,6 +261,7 @@ function relayPage(config, message = "") {
     <div class="tabs" role="tablist">
       <button type="button" class="tab active" data-tab="search">Search 1337x</button>
       <button type="button" class="tab" data-tab="magnet">Paste magnet</button>
+      <button type="button" class="tab" data-tab="status">Active downloads</button>
     </div>
 
     <section class="panel" data-panel="search">
@@ -335,6 +336,27 @@ function relayPage(config, message = "") {
         <button type="submit">Queue for home PC</button>
       </form>
       <div id="notice" class="notice">${escapedMessage}</div>
+    </section>
+
+    <section class="panel hidden" data-panel="status">
+      <p style="font-size:0.9rem">Live snapshot of qBittorrent on the home PC. Auto-refreshes every 5 seconds while this tab is open. If the home poller is offline you'll see "stale".</p>
+      <input id="status-token" type="password" autocomplete="current-password" placeholder="Relay token" style="margin-bottom:14px">
+      <div id="status-meta" class="notice"></div>
+      <table id="status-table" class="results" hidden>
+        <thead>
+          <tr>
+            <th>Name</th>
+            <th class="nowrap">State</th>
+            <th class="right nowrap">Progress</th>
+            <th class="right nowrap">↓ Down</th>
+            <th class="right nowrap">↑ Up</th>
+            <th class="nowrap">ETA</th>
+            <th class="right nowrap">Peers (S/L)</th>
+            <th class="right nowrap">Size</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
     </section>
   </main>
   <script>
@@ -501,7 +523,121 @@ function relayPage(config, message = "") {
       }
     });
 
-    queueBtn.addEventListener("click", async () => {
+    // --- Active downloads polling ----------------------------------------
+    const statusTokenInput = document.querySelector("#status-token");
+    statusTokenInput.value = tokenParam;
+    statusTokenInput.addEventListener("input", () => {
+      searchTokenInput.value = statusTokenInput.value;
+      magnetTokenInput.value = statusTokenInput.value;
+    });
+    searchTokenInput.addEventListener("input", () => { statusTokenInput.value = searchTokenInput.value; });
+    magnetTokenInput.addEventListener("input", () => { statusTokenInput.value = magnetTokenInput.value; });
+
+    const statusMeta = document.querySelector("#status-meta");
+    const statusTable = document.querySelector("#status-table");
+    const statusBody = statusTable.querySelector("tbody");
+
+    const STATE_LABELS = {
+      downloading: "Downloading", uploading: "Seeding",
+      stalledDL: "Stalled (DL)", stalledUP: "Stalled (UP)",
+      pausedDL: "Paused", pausedUP: "Paused (UP)",
+      queuedDL: "Queued (DL)", queuedUP: "Queued (UP)",
+      checkingDL: "Checking", checkingUP: "Checking",
+      forcedDL: "Forced DL", forcedUP: "Forced UP",
+      metaDL: "Fetching metadata", allocating: "Allocating",
+      checkingResumeData: "Checking resume", moving: "Moving",
+      missingFiles: "Missing files", error: "Error", unknown: "Unknown"
+    };
+    function stateLabel(s) { return STATE_LABELS[s] || s || ""; }
+
+    function fmtSpeed(bytesPerSec) {
+      const v = Number(bytesPerSec) || 0;
+      if (v <= 0) return "—";
+      if (v < 1024) return v + " B/s";
+      if (v < 1024 * 1024) return (v / 1024).toFixed(0) + " KB/s";
+      if (v < 1024 * 1024 * 1024) return (v / (1024 * 1024)).toFixed(1) + " MB/s";
+      return (v / (1024 * 1024 * 1024)).toFixed(2) + " GB/s";
+    }
+    function fmtSeconds(s) {
+      const v = Number(s) || 0;
+      // qBittorrent uses 8640000 (100 days) as "infinity".
+      if (!Number.isFinite(v) || v <= 0 || v >= 8640000) return "—";
+      if (v < 60) return "<1m";
+      const m = Math.round(v / 60);
+      if (m < 60) return m + "m";
+      const h = Math.floor(m / 60), rm = m % 60;
+      if (h < 24) return h + "h " + rm + "m";
+      const d = Math.floor(h / 24), rh = h % 24;
+      return d + "d " + rh + "h";
+    }
+    function fmtPct(progress) {
+      const p = Math.max(0, Math.min(1, Number(progress) || 0));
+      const pct = (p * 100).toFixed(p === 1 ? 0 : 1);
+      const bar = '<div style="background:#e3dfd6;border-radius:4px;height:6px;width:80px;display:inline-block;overflow:hidden;margin-right:8px;vertical-align:middle"><div style="background:#255f85;height:100%;width:' + (p * 100).toFixed(2) + '%"></div></div>';
+      return bar + pct + "%";
+    }
+
+    let statusPollTimer = null;
+    async function refreshStatus() {
+      try {
+        const r = await fetch("/api/relay/torrents/status", {
+          headers: { "x-relay-token": statusTokenInput.value }
+        });
+        if (!r.ok) {
+          statusMeta.textContent = "Status fetch failed: " + r.status;
+          statusTable.hidden = true;
+          return;
+        }
+        const body = await r.json();
+        const list = Array.isArray(body.torrents) ? body.torrents : [];
+        if (body.stale || list.length === 0) {
+          statusMeta.textContent = body.updatedAt
+            ? "Last snapshot " + body.updatedAt + " — no active torrents."
+            : "No data — home poller may be offline.";
+          statusBody.innerHTML = "";
+          statusTable.hidden = true;
+          return;
+        }
+        statusMeta.textContent = "Live snapshot from " + body.updatedAt + " (" + list.length + " torrent" + (list.length === 1 ? "" : "s") + ")";
+        statusBody.innerHTML = "";
+        for (const t of list) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = [
+            '<td class="title">', escAttr(t.name || ""), '</td>',
+            '<td class="nowrap">', escAttr(stateLabel(t.state)), '</td>',
+            '<td class="right nowrap">', fmtPct(t.progress), '</td>',
+            '<td class="right nowrap">', fmtSpeed(t.dlspeed), '</td>',
+            '<td class="right nowrap">', fmtSpeed(t.upspeed), '</td>',
+            '<td class="nowrap">', fmtSeconds(t.eta), '</td>',
+            '<td class="right nowrap">', String(t.numSeeds || 0), ' / ', String(t.numLeechs || 0), '</td>',
+            '<td class="right nowrap">', fmtBytes(t.size), '</td>'
+          ].join("");
+          statusBody.appendChild(tr);
+        }
+        statusTable.hidden = false;
+      } catch (e) {
+        statusMeta.textContent = "Status fetch error: " + e.message;
+      }
+    }
+    function startStatusPoll() {
+      refreshStatus();
+      stopStatusPoll();
+      statusPollTimer = setInterval(refreshStatus, 5000);
+    }
+    function stopStatusPoll() {
+      if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
+    }
+
+    // Wire tab switching to start/stop status polling
+    tabButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        if (btn.dataset.tab === "status") startStatusPoll();
+        else stopStatusPoll();
+      });
+    });
+    // If status tab is initially active (it's not by default), start polling.
+
+        queueBtn.addEventListener("click", async () => {
       const checked = Array.from(resultsBody.querySelectorAll("input[type=checkbox]:checked"));
       if (checked.length === 0) return;
       const type = document.querySelector("#search-type").value;
@@ -679,6 +815,27 @@ export function createRequestHandler(config) {
         }
 
         // --- Torrent queue (existing) -------------------------------------
+
+        // --- Active-downloads status snapshot ----------------------------
+
+        if (req.method === "POST" && url.pathname === "/api/relay/torrents/status") {
+          verifyRelayRequest(req, config);
+          const body = await readJson(req);
+          await relayStore.setTorrentsStatus({
+            torrents: Array.isArray(body.torrents) ? body.torrents : [],
+            updatedAt: new Date().toISOString()
+          });
+          return send(res, 200, { ok: true });
+        }
+
+        if (req.method === "GET" && url.pathname === "/api/relay/torrents/status") {
+          verifyRelayRequest(req, config);
+          const status = await relayStore.getTorrentsStatus();
+          if (!status) {
+            return send(res, 200, { torrents: [], updatedAt: null, stale: true });
+          }
+          return send(res, 200, status);
+        }
 
         if (req.method === "GET" && url.pathname === "/api/relay/poll") {
           verifyRelayRequest(req, config);

@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { addToQbittorrent } from "./src/qbittorrent.js";
+import { addToQbittorrent, getTorrents } from "./src/qbittorrent.js";
 import { TmdbClient } from "./src/tmdb.js";
 import { parseDisplayName, parseSeriesInfo } from "./src/torrentName.js";
 import { buildTvSavepath } from "./src/tvFolder.js";
@@ -19,6 +19,7 @@ const DEFAULT_CONFIG = {
   relayToken: "",
   pollIntervalSeconds: 20,
   pollSearchIntervalSeconds: 2,
+  pushStatsIntervalSeconds: 5,
   savePaths: {
     movie: "E:\\Downloads\\Movies",
     tvshow: "E:\\Downloads\\TV Shows",
@@ -58,6 +59,11 @@ async function loadConfig() {
       process.env.POLL_SEARCH_INTERVAL_SECONDS ||
         fileConfig.pollSearchIntervalSeconds ||
         DEFAULT_CONFIG.pollSearchIntervalSeconds
+    ),
+    pushStatsIntervalSeconds: Number(
+      process.env.PUSH_STATS_INTERVAL_SECONDS ||
+        fileConfig.pushStatsIntervalSeconds ||
+        DEFAULT_CONFIG.pushStatsIntervalSeconds
     ),
     savePaths: {
       ...DEFAULT_CONFIG.savePaths,
@@ -325,6 +331,34 @@ async function searchLoop(config) {
   }
 }
 
+
+// Loop 3: push qBittorrent's /torrents/info snapshot to the relay every
+// pushStatsIntervalSeconds so the relay UI can render live download stats.
+async function statusPushLoop(config) {
+  const intervalMs = Math.max(1, Number(config.pushStatsIntervalSeconds) || 5) * 1000;
+  console.log("Pushing qBittorrent status every " + (intervalMs / 1000) + "s.");
+  while (true) {
+    try {
+      const torrents = await getTorrents(config);
+      const r = await fetch(relayEndpoint(config, "/api/relay/torrents/status"), {
+        method: "POST",
+        headers: {
+          "content-type": "application/json",
+          "x-relay-token": config.relayToken
+        },
+        body: JSON.stringify({ torrents })
+      });
+      if (!r.ok) {
+        const text = await r.text().catch(() => "");
+        throw new Error("relay status push failed: " + r.status + " " + text.slice(0, 120));
+      }
+    } catch (error) {
+      console.error("status push:", error.message);
+    }
+    await sleep(intervalMs);
+  }
+}
+
 async function main() {
   const config = await loadConfig();
   if (!config.relayUrl || !config.relayToken) {
@@ -338,9 +372,13 @@ async function main() {
     );
   }
 
-  // Run torrent and search loops concurrently. If either throws an
+  // Run torrent / search / status loops concurrently. If any throws an
   // unrecoverable error it'll bubble up and exit the process.
-  await Promise.all([torrentsLoop(config, tmdb), searchLoop(config)]);
+  await Promise.all([
+    torrentsLoop(config, tmdb),
+    searchLoop(config),
+    statusPushLoop(config)
+  ]);
 }
 
 main().catch((error) => {

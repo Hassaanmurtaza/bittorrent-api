@@ -85,3 +85,35 @@ export async function addToQbittorrent(config, urls, options = {}) {
 
   return text || "Ok.";
 }
+
+export async function getTorrents(config) {
+  const cookie = await login(config);
+  const response = await qbFetch(config, "/api/v2/torrents/info", {
+    headers: { cookie }
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error("qBittorrent /torrents/info failed: " + response.status + " " + text.slice(0, 120));
+  }
+  const list = await response.json();
+  if (!Array.isArray(list)) return [];
+  return list.map((t) => ({
+    hash: t.hash,
+    name: t.name,
+    state: t.state,
+    progress: Number(t.progress) || 0,
+    size: Number(t.size) || 0,
+    downloaded: Number(t.downloaded) || 0,
+    dlspeed: Number(t.dlspeed) || 0,
+    upspeed: Number(t.upspeed) || 0,
+    eta: Number(t.eta) || 0,
+    numSeeds: Number(t.num_seeds) || 0,
+    numLeechs: Number(t.num_leechs) || 0,
+    numComplete: Number(t.num_complete) || 0,
+    numIncomplete: Number(t.num_incomplete) || 0,
+    addedOn: t.added_on,
+    category: t.category,
+    savePath: t.save_path,
+    ratio: Number(t.ratio) || 0
+  }));
+}

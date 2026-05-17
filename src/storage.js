@@ -20,6 +20,7 @@ class FileRelayStore {
     this.queueFile = config.queueFile;
     this.searchJobsFile = config.searchJobsFile || "relay-search-jobs.json";
     this.searchResultsFile = config.searchResultsFile || "relay-search-results.json";
+    this.torrentsStatusFile = config.torrentsStatusFile || "relay-torrents-status.json";
   }
 
   async _readJson(file) {
@@ -100,6 +101,21 @@ class FileRelayStore {
     const { expiresAt, ...rest } = entry;
     return rest;
   }
+
+  // --- Torrents status snapshot (with TTL) ------------------------------
+
+  async setTorrentsStatus(payload, ttlSeconds = 60) {
+    const expiresAt = Date.now() + ttlSeconds * 1000;
+    await this._writeJson(this.torrentsStatusFile, { ...payload, expiresAt });
+  }
+
+  async getTorrentsStatus() {
+    const data = await this._readJson(this.torrentsStatusFile);
+    if (!data) return null;
+    if (data.expiresAt && data.expiresAt < Date.now()) return null;
+    const { expiresAt, ...rest } = data;
+    return rest;
+  }
 }
 
 class RedisRelayStore {
@@ -109,6 +125,7 @@ class RedisRelayStore {
     this.key = config.queueKey;
     this.searchJobsKey = `${config.queueKey}:search:jobs`;
     this.searchResultPrefix = `${config.queueKey}:search:result:`;
+    this.torrentsStatusKey = `${config.queueKey}:torrents:status`;
   }
 
   async command(args) {
@@ -190,6 +207,28 @@ class RedisRelayStore {
 
   async getSearchResult(jobId) {
     const raw = await this.command(["GET", `${this.searchResultPrefix}${jobId}`]);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  // --- Torrents status snapshot ----------------------------------------
+
+  async setTorrentsStatus(payload, ttlSeconds = 60) {
+    await this.command([
+      "SET",
+      this.torrentsStatusKey,
+      JSON.stringify(payload),
+      "EX",
+      String(Math.max(1, Number(ttlSeconds) || 60))
+    ]);
+  }
+
+  async getTorrentsStatus() {
+    const raw = await this.command(["GET", this.torrentsStatusKey]);
     if (!raw) return null;
     try {
       return JSON.parse(raw);
