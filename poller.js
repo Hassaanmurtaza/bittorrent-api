@@ -5,6 +5,7 @@ import { TmdbClient } from "./src/tmdb.js";
 import { parseDisplayName, parseSeriesInfo } from "./src/torrentName.js";
 import { buildTvSavepath } from "./src/tvFolder.js";
 import { search1337x } from "./src/searchProviders/x1337.js";
+import { searchApibay } from "./src/searchProviders/apibay.js";
 
 const DEFAULT_CONFIG = {
   qbittorrentUrl: "http://127.0.0.1:8080",
@@ -26,7 +27,8 @@ const DEFAULT_CONFIG = {
     apiKey: "",
     language: "en-CA"
   },
-  tvShowOverrides: {}
+  tvShowOverrides: {},
+  searchProvider: "apibay"
 };
 
 async function loadConfig() {
@@ -68,7 +70,8 @@ async function loadConfig() {
     tvShowOverrides: {
       ...DEFAULT_CONFIG.tvShowOverrides,
       ...(fileConfig.tvShowOverrides || {})
-    }
+    },
+    searchProvider: (process.env.SEARCH_PROVIDER || fileConfig.searchProvider || DEFAULT_CONFIG.searchProvider).toLowerCase()
   };
 }
 
@@ -272,6 +275,7 @@ async function torrentsLoop(config, tmdb) {
 
 // Loop 2: search-job queue. Runs every pollSearchIntervalSeconds.
 async function searchLoop(config) {
+  console.log("Search provider: " + (config.searchProvider || "apibay") + ".");
   console.log("Polling for search jobs every " + config.pollSearchIntervalSeconds + "s.");
   while (true) {
     try {
@@ -284,7 +288,11 @@ async function searchLoop(config) {
         "Search job " + job.id + ": " + JSON.stringify({ query: job.query, type: job.type, limit: job.limit })
       );
       try {
-        const results = await search1337x(job.query, { type: job.type, limit: job.limit });
+        const providerName = (config.searchProvider || "apibay").toLowerCase();
+        const runSearch = providerName === "1337x"
+          ? search1337x
+          : searchApibay;
+        const results = await runSearch(job.query, { type: job.type, limit: job.limit });
         await postSearchResult(config, job.id, { results });
         console.log("Search job " + job.id + " -> " + results.length + " result(s).");
       } catch (err) {
