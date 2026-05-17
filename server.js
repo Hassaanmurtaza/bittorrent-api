@@ -1,9 +1,11 @@
 import http from "node:http";
-import { readFile, writeFile } from "node:fs/promises";
+import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
 import { randomBytes } from "node:crypto";
+import { pathToFileURL } from "node:url";
 import { extractSupportedLinks, hasUnsupportedWebUrl } from "./src/links.js";
 import { addToQbittorrent } from "./src/qbittorrent.js";
+import { createRelayStore } from "./src/storage.js";
 
 const DEFAULT_CONFIG = {
   port: 7331,
@@ -15,11 +17,12 @@ const DEFAULT_CONFIG = {
   mode: "local",
   relayToken: "",
   queueFile: "relay-queue.json",
+  queueKey: "qbittorrent-relay-queue",
   defaultCategory: "",
   startPaused: false
 };
 
-async function loadConfig() {
+export async function loadConfig() {
   const fileConfig = existsSync("config.json")
     ? JSON.parse(await readFile("config.json", "utf8"))
     : {};
@@ -35,7 +38,19 @@ async function loadConfig() {
     password: process.env.QB_PASS || fileConfig.password || DEFAULT_CONFIG.password,
     token: process.env.BRIDGE_TOKEN || fileConfig.token || "",
     mode: process.env.MODE || fileConfig.mode || DEFAULT_CONFIG.mode,
-    relayToken: process.env.RELAY_TOKEN || fileConfig.relayToken || ""
+    relayToken: process.env.RELAY_TOKEN || fileConfig.relayToken || "",
+    queueFile: process.env.RELAY_QUEUE_FILE || fileConfig.queueFile || DEFAULT_CONFIG.queueFile,
+    queueKey: process.env.RELAY_QUEUE_KEY || fileConfig.queueKey || DEFAULT_CONFIG.queueKey,
+    kvRestApiUrl:
+      process.env.KV_REST_API_URL ||
+      process.env.UPSTASH_REDIS_REST_URL ||
+      fileConfig.kvRestApiUrl ||
+      "",
+    kvRestApiToken:
+      process.env.KV_REST_API_TOKEN ||
+      process.env.UPSTASH_REDIS_REST_TOKEN ||
+      fileConfig.kvRestApiToken ||
+      ""
   };
 
   if (!config.token || config.token === "change-this-to-a-long-random-string") {
@@ -45,6 +60,16 @@ async function loadConfig() {
 
   if (config.mode === "relay" && !config.relayToken) {
     throw new Error("RELAY_TOKEN is required when MODE=relay.");
+  }
+
+  if (
+    config.mode === "relay" &&
+    process.env.VERCEL &&
+    (!config.kvRestApiUrl || !config.kvRestApiToken)
+  ) {
+    throw new Error(
+      "KV_REST_API_URL and KV_REST_API_TOKEN are required for relay mode on Vercel. Add a Redis storage integration before deploying."
+    );
   }
 
   return config;
@@ -432,30 +457,12 @@ function verifyRelayRequest(req, config) {
   return url;
 }
 
-async function readQueue(config) {
-  if (!existsSync(config.queueFile)) {
-    return [];
-  }
-
-  const content = await readFile(config.queueFile, "utf8");
-  if (!content.trim()) {
-    return [];
-  }
-
-  return JSON.parse(content);
-}
-
-async function writeQueue(config, queue) {
-  await writeFile(config.queueFile, JSON.stringify(queue, null, 2), "utf8");
-}
-
-async function queueRelayItem(config, text, options = {}) {
+async function queueRelayItem(store, text, options = {}) {
   const links = extractSupportedLinks(text);
   if (links.length === 0) {
     throw Object.assign(new Error(unsupportedMessage(text)), { statusCode: 400 });
   }
 
-  const queue = await readQueue(config);
   const item = {
     id: `${Date.now()}-${randomBytes(4).toString("hex")}`,
     createdAt: new Date().toISOString(),
@@ -464,17 +471,7 @@ async function queueRelayItem(config, text, options = {}) {
     category: options.category || ""
   };
 
-  queue.push(item);
-  await writeQueue(config, queue);
-  return item;
-}
-
-async function ackRelayItems(config, ids) {
-  const idSet = new Set(ids);
-  const queue = await readQueue(config);
-  const remaining = queue.filter((item) => !idSet.has(item.id));
-  await writeQueue(config, remaining);
-  return queue.length - remaining.length;
+  return await store.push(item);
 }
 
 async function handleAdd(config, req, res, text, options = {}) {
@@ -487,10 +484,10 @@ async function handleAdd(config, req, res, text, options = {}) {
   return send(res, 200, { added: links });
 }
 
-async function main() {
-  const config = await loadConfig();
+export function createRequestHandler(config) {
+  const relayStore = createRelayStore(config);
 
-  const server = http.createServer(async (req, res) => {
+  return async function requestHandler(req, res) {
     try {
       const url = new URL(req.url, `http://${req.headers.host || "localhost"}`);
 
@@ -506,7 +503,7 @@ async function main() {
         if (req.method === "POST" && url.pathname === "/api/relay/add") {
           verifyRelayRequest(req, config);
           const body = await readJson(req);
-          const item = await queueRelayItem(config, body.text || body.url || "", {
+          const item = await queueRelayItem(relayStore, body.text || body.url || "", {
             paused: Boolean(body.paused),
             category: body.category
           });
@@ -515,14 +512,14 @@ async function main() {
 
         if (req.method === "GET" && url.pathname === "/api/relay/poll") {
           verifyRelayRequest(req, config);
-          const queue = await readQueue(config);
+          const queue = await relayStore.list();
           return send(res, 200, { items: queue });
         }
 
         if (req.method === "POST" && url.pathname === "/api/relay/ack") {
           verifyRelayRequest(req, config);
           const body = await readJson(req);
-          const acked = await ackRelayItems(config, Array.isArray(body.ids) ? body.ids : []);
+          const acked = await relayStore.removeByIds(Array.isArray(body.ids) ? body.ids : []);
           return send(res, 200, { acked });
         }
 
@@ -565,7 +562,12 @@ async function main() {
       const status = error.statusCode || 500;
       return send(res, status, { error: error.message || "Server error" });
     }
-  });
+  };
+}
+
+async function main() {
+  const config = await loadConfig();
+  const server = http.createServer(createRequestHandler(config));
 
   server.listen(config.port, config.host, () => {
     console.log(`qBittorrent bridge: http://${config.host}:${config.port}`);
@@ -576,7 +578,10 @@ async function main() {
   });
 }
 
-main().catch((error) => {
-  console.error(error);
-  process.exit(1);
-});
+const isDirectRun = process.argv[1] && import.meta.url === pathToFileURL(process.argv[1]).href;
+if (isDirectRun) {
+  main().catch((error) => {
+    console.error(error);
+    process.exit(1);
+  });
+}

@@ -93,7 +93,43 @@ Stop it:
 
 The `.cmd` versions work the same way: `launch.cmd`, `status.cmd`, and `stop.cmd`.
 
-## Deploy the public relay
+## Deploy the public relay to Vercel
+
+This repo is ready for Vercel through `api/index.js` and `vercel.json`. Vercel runs the relay as Serverless Functions, so the queue must live in durable Redis storage instead of a local file.
+
+1. Import `Hassaanmurtaza/bittorrent-api` in Vercel.
+2. Add a Redis storage integration from the Vercel Marketplace. The app supports either `KV_REST_API_URL` / `KV_REST_API_TOKEN` or `UPSTASH_REDIS_REST_URL` / `UPSTASH_REDIS_REST_TOKEN`.
+3. Set these project environment variables:
+
+```text
+MODE=relay
+RELAY_TOKEN=your-long-random-secret
+```
+
+Optional:
+
+```text
+RELAY_QUEUE_KEY=qbittorrent-relay-queue
+```
+
+After deployment, update local `config.json`:
+
+```json
+{
+  "relayUrl": "https://your-vercel-project.vercel.app",
+  "relayToken": "your-long-random-secret"
+}
+```
+
+Then run the local poller:
+
+```powershell
+.\poll.cmd
+```
+
+Open the Vercel URL in your phone or another PC, paste a magnet/direct `.torrent` URL, enter the relay token, and submit. The local poller will pick it up and send it to qBittorrent.
+
+## Deploy the public relay to Render
 
 This repo includes `render.yaml` for Render. Create a new Render Blueprint from this repository and set:
 
