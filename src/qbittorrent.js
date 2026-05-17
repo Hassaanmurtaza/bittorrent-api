@@ -117,3 +117,23 @@ export async function getTorrents(config) {
     ratio: Number(t.ratio) || 0
   }));
 }
+
+export async function deleteTorrents(config, hashes, deleteFiles = false) {
+  if (!Array.isArray(hashes) || hashes.length === 0) return;
+  const cookie = await login(config);
+  const form = new URLSearchParams();
+  form.set("hashes", hashes.join("|"));
+  form.set("deleteFiles", deleteFiles ? "true" : "false");
+  const response = await qbFetch(config, "/api/v2/torrents/delete", {
+    method: "POST",
+    headers: {
+      cookie,
+      "content-type": "application/x-www-form-urlencoded"
+    },
+    body: form
+  });
+  if (!response.ok) {
+    const text = await response.text().catch(() => "");
+    throw new Error("qBittorrent /torrents/delete failed: " + response.status + " " + text.slice(0, 120));
+  }
+}

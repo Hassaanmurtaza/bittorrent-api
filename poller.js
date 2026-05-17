@@ -1,6 +1,6 @@
 import { readFile } from "node:fs/promises";
 import { existsSync } from "node:fs";
-import { addToQbittorrent, getTorrents } from "./src/qbittorrent.js";
+import { addToQbittorrent, getTorrents, deleteTorrents } from "./src/qbittorrent.js";
 import { TmdbClient } from "./src/tmdb.js";
 import { parseDisplayName, parseSeriesInfo } from "./src/torrentName.js";
 import { buildTvSavepath } from "./src/tvFolder.js";
@@ -334,11 +334,45 @@ async function searchLoop(config) {
 
 // Loop 3: push qBittorrent's /torrents/info snapshot to the relay every
 // pushStatsIntervalSeconds so the relay UI can render live download stats.
+
+async function fetchNextDeleteJob(config) {
+  const r = await fetch(relayEndpoint(config, "/api/relay/torrents/delete/jobs/next"), {
+    headers: { "x-relay-token": config.relayToken }
+  });
+  if (!r.ok) {
+    if (r.status !== 404) {
+      const text = await r.text().catch(() => "");
+      throw new Error("delete job fetch failed: " + r.status + " " + text.slice(0, 120));
+    }
+    return null;
+  }
+  const body = await r.json();
+  return body.job || null;
+}
+
+async function drainDeleteJobs(config) {
+  // Process up to 10 deletes per tick to avoid starving the status push.
+  for (let i = 0; i < 10; i++) {
+    const job = await fetchNextDeleteJob(config);
+    if (!job) return;
+    try {
+      await deleteTorrents(config, [job.hash], Boolean(job.deleteFiles));
+      console.log(
+        "Removed torrent " + (job.name || job.hash) +
+        (job.deleteFiles ? " (with files)" : "") + "."
+      );
+    } catch (err) {
+      console.error("delete failed for " + job.hash + ": " + err.message);
+    }
+  }
+}
+
 async function statusPushLoop(config) {
   const intervalMs = Math.max(1, Number(config.pushStatsIntervalSeconds) || 5) * 1000;
   console.log("Pushing qBittorrent status every " + (intervalMs / 1000) + "s.");
   while (true) {
     try {
+      await drainDeleteJobs(config);
       const torrents = await getTorrents(config);
       const r = await fetch(relayEndpoint(config, "/api/relay/torrents/status"), {
         method: "POST",

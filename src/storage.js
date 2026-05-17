@@ -21,6 +21,7 @@ class FileRelayStore {
     this.searchJobsFile = config.searchJobsFile || "relay-search-jobs.json";
     this.searchResultsFile = config.searchResultsFile || "relay-search-results.json";
     this.torrentsStatusFile = config.torrentsStatusFile || "relay-torrents-status.json";
+    this.deleteJobsFile = config.deleteJobsFile || "relay-delete-jobs.json";
   }
 
   async _readJson(file) {
@@ -116,6 +117,23 @@ class FileRelayStore {
     const { expiresAt, ...rest } = data;
     return rest;
   }
+
+  // --- Torrent-delete job queue ----------------------------------------
+
+  async pushDeleteJob(job) {
+    const jobs = (await this._readJson(this.deleteJobsFile)) || [];
+    jobs.push(job);
+    await this._writeJson(this.deleteJobsFile, jobs);
+    return job;
+  }
+
+  async popDeleteJob() {
+    const jobs = (await this._readJson(this.deleteJobsFile)) || [];
+    if (jobs.length === 0) return null;
+    const next = jobs.shift();
+    await this._writeJson(this.deleteJobsFile, jobs);
+    return next;
+  }
 }
 
 class RedisRelayStore {
@@ -126,6 +144,7 @@ class RedisRelayStore {
     this.searchJobsKey = `${config.queueKey}:search:jobs`;
     this.searchResultPrefix = `${config.queueKey}:search:result:`;
     this.torrentsStatusKey = `${config.queueKey}:torrents:status`;
+    this.deleteJobsKey = `${config.queueKey}:torrents:delete:jobs`;
   }
 
   async command(args) {
@@ -229,6 +248,23 @@ class RedisRelayStore {
 
   async getTorrentsStatus() {
     const raw = await this.command(["GET", this.torrentsStatusKey]);
+    if (!raw) return null;
+    try {
+      return JSON.parse(raw);
+    } catch {
+      return null;
+    }
+  }
+
+  // --- Torrent-delete job queue ----------------------------------------
+
+  async pushDeleteJob(job) {
+    await this.command(["RPUSH", this.deleteJobsKey, JSON.stringify(job)]);
+    return job;
+  }
+
+  async popDeleteJob() {
+    const raw = await this.command(["LPOP", this.deleteJobsKey]);
     if (!raw) return null;
     try {
       return JSON.parse(raw);

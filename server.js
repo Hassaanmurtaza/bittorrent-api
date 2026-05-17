@@ -353,6 +353,7 @@ function relayPage(config, message = "") {
             <th class="nowrap">ETA</th>
             <th class="right nowrap">Peers (S/L)</th>
             <th class="right nowrap">Size</th>
+            <th class="nowrap">Remove</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -610,7 +611,11 @@ function relayPage(config, message = "") {
             '<td class="right nowrap">', fmtSpeed(t.upspeed), '</td>',
             '<td class="nowrap">', fmtSeconds(t.eta), '</td>',
             '<td class="right nowrap">', String(t.numSeeds || 0), ' / ', String(t.numLeechs || 0), '</td>',
-            '<td class="right nowrap">', fmtBytes(t.size), '</td>'
+            '<td class="right nowrap">', fmtBytes(t.size), '</td>',
+            '<td class="nowrap">',
+              '<button type="button" class="remove-btn" data-hash="', escAttr(t.hash || ""), '" data-name="', escAttr(t.name || ""), '" data-delete-files="0" style="padding:4px 8px;font-size:0.85rem;background:#888">Remove</button> ',
+              '<button type="button" class="remove-btn" data-hash="', escAttr(t.hash || ""), '" data-name="', escAttr(t.name || ""), '" data-delete-files="1" style="padding:4px 8px;font-size:0.85rem;background:#a64646">+ files</button>',
+            '</td>'
           ].join("");
           statusBody.appendChild(tr);
         }
@@ -619,6 +624,40 @@ function relayPage(config, message = "") {
         statusMeta.textContent = "Status fetch error: " + e.message;
       }
     }
+    statusBody.addEventListener("click", async (event) => {
+      const btn = event.target.closest("button.remove-btn");
+      if (!btn) return;
+      const hash = btn.dataset.hash;
+      const name = btn.dataset.name || "this torrent";
+      const deleteFiles = btn.dataset.deleteFiles === "1";
+      if (!hash) return;
+      const verb = deleteFiles ? "Remove + DELETE FILES" : "Remove";
+      if (!window.confirm(verb + ' "' + name + '"?\n\n' + (deleteFiles ? "Files on disk will be permanently deleted." : "Files on disk will be kept; only the torrent is removed from qBittorrent."))) {
+        return;
+      }
+      btn.disabled = true;
+      btn.textContent = "Removing...";
+      try {
+        const r = await fetch("/api/relay/torrents/delete", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-relay-token": statusTokenInput.value
+          },
+          body: JSON.stringify({ hash, deleteFiles, name })
+        });
+        const body = await r.json();
+        if (!r.ok) throw new Error(body.error || "Remove failed");
+        // Optimistically remove the row; next refresh will confirm.
+        btn.closest("tr").remove();
+        statusMeta.textContent = "Queued remove for \"" + name + "\". Next refresh will confirm.";
+      } catch (e) {
+        btn.disabled = false;
+        btn.textContent = deleteFiles ? "+ files" : "Remove";
+        statusMeta.textContent = "Remove failed: " + e.message;
+      }
+    });
+
     function startStatusPoll() {
       refreshStatus();
       stopStatusPoll();
@@ -835,6 +874,30 @@ export function createRequestHandler(config) {
             return send(res, 200, { torrents: [], updatedAt: null, stale: true });
           }
           return send(res, 200, status);
+        }
+
+        // UI enqueues a torrent-delete job.
+        if (req.method === "POST" && url.pathname === "/api/relay/torrents/delete") {
+          verifyRelayRequest(req, config);
+          const body = await readJson(req);
+          const hash = String(body.hash || "").trim();
+          if (!hash) return send(res, 400, { error: "hash is required" });
+          const job = {
+            id: `${Date.now()}-${randomBytes(4).toString("hex")}`,
+            hash,
+            deleteFiles: Boolean(body.deleteFiles),
+            name: body.name || null,
+            queuedAt: new Date().toISOString()
+          };
+          await relayStore.pushDeleteJob(job);
+          return send(res, 200, { ok: true, id: job.id });
+        }
+
+        // Home poller pulls the next delete job.
+        if (req.method === "GET" && url.pathname === "/api/relay/torrents/delete/jobs/next") {
+          verifyRelayRequest(req, config);
+          const job = await relayStore.popDeleteJob();
+          return send(res, 200, { job: job || null });
         }
 
         if (req.method === "GET" && url.pathname === "/api/relay/poll") {
