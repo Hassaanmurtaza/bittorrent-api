@@ -5,6 +5,7 @@
   "description": "Local qBittorrent bridge for magnet links and direct torrent URLs.",
   "type": "module",
   "scripts": {
+    "build": "node --check server.js && node --check poller.js && node --check api/index.js",
     "start": "node server.js",
     "poll": "node poller.js",
     "test": "node --test"
