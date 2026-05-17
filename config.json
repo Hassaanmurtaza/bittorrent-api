@@ -1,0 +1,13 @@
+{
+  "port": 7331,
+  "host": "127.0.0.1",
+  "qbittorrentUrl": "http://127.0.0.1:8080",
+  "username": "admin",
+  "password": "Tbgb65tbgb!!",
+  "token": "f4a5d62f89194a0eb99c7cfd26b0c833b8cebb7f6c531d7d",
+  "relayUrl": "",
+  "relayToken": "e1d9c1db9e4c4ba982cffcfbbfb7b442541298f2c25afaa8",
+  "pollIntervalSeconds": 20,
+  "defaultCategory": "",
+  "startPaused": false
+}

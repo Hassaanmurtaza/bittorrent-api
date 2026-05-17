@@ -1,0 +1,15 @@
+{
+  "name": "torrent-api",
+  "version": "0.1.0",
+  "private": true,
+  "description": "Local qBittorrent bridge for magnet links and direct torrent URLs.",
+  "type": "module",
+  "scripts": {
+    "start": "node server.js",
+    "poll": "node poller.js",
+    "test": "node --test"
+  },
+  "engines": {
+    "node": ">=18"
+  }
+}

@@ -1,0 +1,13 @@
+{
+  "port": 7331,
+  "host": "127.0.0.1",
+  "qbittorrentUrl": "http://127.0.0.1:8080",
+  "username": "admin",
+  "password": "your-qbittorrent-password",
+  "token": "change-this-to-a-long-random-string",
+  "relayUrl": "https://your-public-relay.example",
+  "relayToken": "change-this-to-a-different-long-random-string",
+  "pollIntervalSeconds": 20,
+  "defaultCategory": "",
+  "startPaused": false
+}
