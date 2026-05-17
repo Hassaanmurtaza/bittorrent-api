@@ -342,6 +342,7 @@ function relayPage(config, message = "") {
       <p style="font-size:0.9rem">Live snapshot of qBittorrent on the home PC. Auto-refreshes every 5 seconds while this tab is open. If the home poller is offline you'll see "stale".</p>
       <input id="status-token" type="password" autocomplete="current-password" placeholder="Relay token" style="margin-bottom:14px">
       <div id="status-meta" class="notice"></div>
+      <div id="status-learning" style="font-size:0.85rem;color:#5c5f64;margin-bottom:8px"></div>
       <table id="status-table" class="results" hidden>
         <thead>
           <tr>
@@ -600,6 +601,18 @@ function relayPage(config, message = "") {
           return;
         }
         statusMeta.textContent = "Live snapshot from " + body.updatedAt + " (" + list.length + " torrent" + (list.length === 1 ? "" : "s") + ")";
+        const statusLearning = document.querySelector("#status-learning");
+        if (body.learning && statusLearning) {
+          if (body.learning.trusted) {
+            statusLearning.textContent =
+              "Learned ETA rate: " + body.learning.perSeedMbps + " Mbps per seed (from " +
+              body.learning.samples + " samples). Peak swarm seen: " +
+              body.learning.totalMbpsObservedMax + " Mbps total.";
+          } else {
+            statusLearning.textContent =
+              "Learning in progress: " + body.learning.samples + " samples so far (need 20 to switch from the config default).";
+          }
+        }
         statusBody.innerHTML = "";
         for (const t of list) {
           const tr = document.createElement("tr");

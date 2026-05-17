@@ -8,6 +8,13 @@ import { search1337x } from "./src/searchProviders/x1337.js";
 import { searchApibay } from "./src/searchProviders/apibay.js";
 import { searchKnaben } from "./src/searchProviders/knaben.js";
 import { annotateEta } from "./src/eta.js";
+import {
+  DEFAULT_LEARNING,
+  updateLearning,
+  effectivePerSeedMbps,
+  summarizeLearning
+} from "./src/learning.js";
+import { writeFile } from "node:fs/promises";
 
 const DEFAULT_CONFIG = {
   qbittorrentUrl: "http://127.0.0.1:8080",
@@ -33,7 +40,8 @@ const DEFAULT_CONFIG = {
   },
   tvShowOverrides: {},
   searchProvider: "knaben",
-  bandwidth: { downloadMbps: 2350, perSeedMbps: 8 }
+  bandwidth: { downloadMbps: 2350, perSeedMbps: 8 },
+  learningFile: "relay-learning.json"
 };
 
 async function loadConfig() {
@@ -85,8 +93,27 @@ async function loadConfig() {
     bandwidth: {
       ...DEFAULT_CONFIG.bandwidth,
       ...(fileConfig.bandwidth || {})
-    }
+    },
+    learningFile: process.env.LEARNING_FILE || fileConfig.learningFile || DEFAULT_CONFIG.learningFile
   };
+}
+
+async function loadLearning(file) {
+  try {
+    const text = await readFile(file, "utf8");
+    const data = JSON.parse(text);
+    return { ...DEFAULT_LEARNING, ...data };
+  } catch {
+    return { ...DEFAULT_LEARNING };
+  }
+}
+
+async function saveLearning(file, learning) {
+  try {
+    await writeFile(file, JSON.stringify(learning, null, 2), "utf8");
+  } catch (err) {
+    console.error("Failed to save learning file:", err.message);
+  }
 }
 
 function resolveSavePath(config, type) {
@@ -314,8 +341,9 @@ async function searchLoop(config) {
           sortBy: job.sortBy || "seeders"
         });
         const bw = config.bandwidth || {};
+        const learnedRate = effectivePerSeedMbps(learning, bw.perSeedMbps);
         const results = rawResults.map((r) =>
-          annotateEta(r, bw.downloadMbps, bw.perSeedMbps)
+          annotateEta(r, bw.downloadMbps, learnedRate)
         );
         await postSearchResult(config, job.id, { results });
         console.log("Search job " + job.id + " -> " + results.length + " result(s) annotated with ETA at " + (config.bandwidth?.downloadMbps || 2350) + " Mbps cap).");
@@ -367,6 +395,9 @@ async function drainDeleteJobs(config) {
   }
 }
 
+// Module-level learning state (shared by status push + search loops)
+let learning = { ...DEFAULT_LEARNING };
+
 async function statusPushLoop(config) {
   const intervalMs = Math.max(1, Number(config.pushStatsIntervalSeconds) || 5) * 1000;
   console.log("Pushing qBittorrent status every " + (intervalMs / 1000) + "s.");
@@ -374,13 +405,16 @@ async function statusPushLoop(config) {
     try {
       await drainDeleteJobs(config);
       const torrents = await getTorrents(config);
+      learning = updateLearning(learning, torrents);
+      // Persist asynchronously; do not block the loop on disk I/O.
+      saveLearning(config.learningFile, learning).catch(() => {});
       const r = await fetch(relayEndpoint(config, "/api/relay/torrents/status"), {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-relay-token": config.relayToken
         },
-        body: JSON.stringify({ torrents })
+        body: JSON.stringify({ torrents, learning: summarizeLearning(learning) })
       });
       if (!r.ok) {
         const text = await r.text().catch(() => "");
