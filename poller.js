@@ -6,6 +6,7 @@ import { parseDisplayName, parseSeriesInfo } from "./src/torrentName.js";
 import { buildTvSavepath } from "./src/tvFolder.js";
 import { search1337x } from "./src/searchProviders/x1337.js";
 import { searchApibay } from "./src/searchProviders/apibay.js";
+import { searchKnaben } from "./src/searchProviders/knaben.js";
 
 const DEFAULT_CONFIG = {
   qbittorrentUrl: "http://127.0.0.1:8080",
@@ -28,7 +29,7 @@ const DEFAULT_CONFIG = {
     language: "en-CA"
   },
   tvShowOverrides: {},
-  searchProvider: "apibay"
+  searchProvider: "knaben"
 };
 
 async function loadConfig() {
@@ -288,10 +289,11 @@ async function searchLoop(config) {
         "Search job " + job.id + ": " + JSON.stringify({ query: job.query, type: job.type, limit: job.limit })
       );
       try {
-        const providerName = (config.searchProvider || "apibay").toLowerCase();
-        const runSearch = providerName === "1337x"
-          ? search1337x
-          : searchApibay;
+        const providerName = (config.searchProvider || "knaben").toLowerCase();
+        const runSearch =
+          providerName === "1337x" ? search1337x :
+          providerName === "apibay" ? searchApibay :
+          searchKnaben;
         const results = await runSearch(job.query, { type: job.type, limit: job.limit });
         await postSearchResult(config, job.id, { results });
         console.log("Search job " + job.id + " -> " + results.length + " result(s).");

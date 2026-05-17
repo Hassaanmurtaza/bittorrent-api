@@ -272,8 +272,9 @@ function relayPage(config, message = "") {
           <label class="field">
             Top
             <select id="search-limit">
-              <option value="5" selected>5</option>
               <option value="10">10</option>
+              <option value="30" selected>30</option>
+              <option value="50">50</option>
             </select>
           </label>
         </div>
