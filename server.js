@@ -632,7 +632,7 @@ function relayPage(config, message = "") {
       const deleteFiles = btn.dataset.deleteFiles === "1";
       if (!hash) return;
       const verb = deleteFiles ? "Remove + DELETE FILES" : "Remove";
-      if (!window.confirm(verb + ' "' + name + '"?\n\n' + (deleteFiles ? "Files on disk will be permanently deleted." : "Files on disk will be kept; only the torrent is removed from qBittorrent."))) {
+      if (!window.confirm(verb + ' "' + name + '"?\\n\\n' + (deleteFiles ? "Files on disk will be permanently deleted." : "Files on disk will be kept; only the torrent is removed from qBittorrent."))) {
         return;
       }
       btn.disabled = true;
@@ -650,7 +650,7 @@ function relayPage(config, message = "") {
         if (!r.ok) throw new Error(body.error || "Remove failed");
         // Optimistically remove the row; next refresh will confirm.
         btn.closest("tr").remove();
-        statusMeta.textContent = "Queued remove for \"" + name + "\". Next refresh will confirm.";
+        statusMeta.textContent = "Queued remove for \\"" + name + "\\". Next refresh will confirm.";
       } catch (e) {
         btn.disabled = false;
         btn.textContent = deleteFiles ? "+ files" : "Remove";
