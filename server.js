@@ -132,7 +132,7 @@ function page(config, message = "") {
     :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f4ef; color: #202124; }
     body { margin: 0; min-height: 100vh; display: grid; place-items: center; padding: 32px 16px; box-sizing: border-box; }
     main { width: min(820px, 100%); }
-    h1 { font-size: clamp(2rem, 5vw, 4rem); line-height: 1; margin: 0 0 16px; }
+    h1 { font-size: clamp(1.5rem, 2.4vw, 2.4rem); line-height: 1.1; margin: 0 0 12px; }
     p { color: #5c5f64; line-height: 1.55; max-width: 68ch; }
     form { display: grid; gap: 14px; margin-top: 28px; }
     textarea, input { width: 100%; box-sizing: border-box; border: 1px solid #c8c3ba; border-radius: 8px; padding: 14px; font: inherit; background: #fffdfa; color: inherit; }
@@ -210,9 +210,9 @@ function relayPage(config, message = "") {
   <title>Torrent Relay</title>
   <style>
     :root { color-scheme: light dark; font-family: Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif; background: #f7f4ef; color: #202124; }
-    body { margin: 0; min-height: 100vh; display: grid; place-items: start center; padding: 32px 16px; box-sizing: border-box; }
-    main { width: min(900px, 100%); }
-    h1 { font-size: clamp(2rem, 5vw, 4rem); line-height: 1; margin: 0 0 16px; }
+    body { margin: 0; min-height: 100vh; display: grid; place-items: start center; padding: 24px 24px 40px; box-sizing: border-box; }
+    main { width: min(1400px, 100%); }
+    h1 { font-size: clamp(1.5rem, 2.4vw, 2.4rem); line-height: 1.1; margin: 0 0 12px; }
     p { color: #5c5f64; line-height: 1.55; max-width: 68ch; }
     .tabs { display: flex; gap: 4px; border-bottom: 1px solid #d6d2c9; margin-top: 22px; }
     .tab { background: transparent; color: #5c5f64; border: 0; border-bottom: 3px solid transparent; padding: 10px 14px; font: inherit; font-weight: 600; cursor: pointer; border-radius: 0; }
@@ -227,7 +227,12 @@ function relayPage(config, message = "") {
     button:disabled { opacity: 0.65; cursor: wait; }
     .notice { min-height: 24px; margin-top: 14px; font-weight: 700; }
     table.results { width: 100%; border-collapse: collapse; margin-top: 14px; font-size: 0.92rem; }
-    table.results th, table.results td { text-align: left; padding: 8px 6px; border-bottom: 1px solid #e3dfd6; vertical-align: top; }
+    table.results { table-layout: auto; }
+    table.results th, table.results td { text-align: left; padding: 8px 10px; border-bottom: 1px solid #e3dfd6; vertical-align: middle; }
+    table.results td.nowrap, table.results th.nowrap { white-space: nowrap; }
+    table.results td.title { word-break: break-word; min-width: 24ch; }
+    table.results td.title a { text-decoration: none; }
+    table.results td.title a:hover { text-decoration: underline; }
     table.results th { font-weight: 700; color: #3c4043; }
     table.results td.right { text-align: right; }
     table.results a { color: inherit; }
@@ -296,14 +301,14 @@ function relayPage(config, message = "") {
       <table id="search-results" class="results" hidden>
         <thead>
           <tr>
-            <th></th>
+            <th class="nowrap"></th>
             <th>Title</th>
-            <th class="right">Seeds</th>
-            <th class="right">Leeches</th>
-            <th>Size</th>
-            <th title="Estimated download time. Range shows best-case (fast swarm) to worst-case (slow seeders). Based on your connection cap and the seed count.">ETA<br><small style="font-weight:400;color:#5c5f64">fast – slow</small></th>
-            <th>Date</th>
-            <th>Uploader</th>
+            <th class="right nowrap">Seeds</th>
+            <th class="right nowrap">Leeches</th>
+            <th class="nowrap">Size</th>
+            <th class="nowrap" title="Estimated download time. Range shows best-case (fast swarm) to worst-case (slow seeders). Based on your connection cap and the seed count.">ETA <small style="font-weight:400;color:#5c5f64">(fast – slow)</small></th>
+            <th class="nowrap">Date</th>
+            <th class="nowrap">Uploader</th>
           </tr>
         </thead>
         <tbody></tbody>
@@ -475,14 +480,14 @@ function relayPage(config, message = "") {
         for (const r of results) {
           const tr = document.createElement("tr");
           tr.innerHTML = [
-            '<td><input type="checkbox" data-magnet="', escAttr(r.magnet), '"></td>',
-            '<td><a href="', escAttr(r.detailUrl), '" target="_blank" rel="noopener noreferrer">', escAttr(r.name), '</a></td>',
-            '<td class="right">', String(r.seeds || 0), '</td>',
-            '<td class="right">', String(r.leeches || 0), '</td>',
-            '<td>', escAttr(r.sizeText || fmtBytes(r.sizeBytes)), '</td>',
-            '<td title="', escAttr(r.estimatedMBps ? (r.estimatedMBps + " MB/s typical estimate") : ""), '">', escAttr(r.etaRangeText || r.etaText || ""), '</td>',
-            '<td>', escAttr(r.date || ""), '</td>',
-            '<td>', escAttr(r.uploader || ""), '</td>'
+            '<td class="nowrap"><input type="checkbox" data-magnet="', escAttr(r.magnet), '"></td>',
+            '<td class="title"><a href="', escAttr(r.detailUrl), '" target="_blank" rel="noopener noreferrer">', escAttr(r.name), '</a></td>',
+            '<td class="right nowrap">', String(r.seeds || 0), '</td>',
+            '<td class="right nowrap">', String(r.leeches || 0), '</td>',
+            '<td class="nowrap">', escAttr(r.sizeText || fmtBytes(r.sizeBytes)), '</td>',
+            '<td class="nowrap" title="', escAttr(r.estimatedMBps ? (r.estimatedMBps + " MB/s typical estimate") : ""), '">', escAttr(r.etaRangeText || r.etaText || ""), '</td>',
+            '<td class="nowrap">', escAttr(r.date || ""), '</td>',
+            '<td class="nowrap">', escAttr(r.uploader || ""), '</td>'
           ].join("");
           resultsBody.appendChild(tr);
         }
