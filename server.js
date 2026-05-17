@@ -250,7 +250,8 @@ function relayPage(config, message = "") {
 <body>
   <main>
     <h1>Torrent relay</h1>
-    <p>Search 1337x or paste a magnet / direct <code>.torrent</code> URL. Search runs on your home PC (Cloudflare blocks Vercel) so your home poller must be online.</p>
+    <p>Search a torrent index or paste a magnet / direct <code>.torrent</code> URL. The search runs on the home PC so the home poller must be online.</p>
+    <p style="font-size:0.9rem"><strong>ETA column:</strong> estimated time the download will take. Shown as a range from a fast swarm (high-quality seeders) to a slow one (throttled / distant seeders). Based on your home connection cap and the number of seeders on each torrent. Hover a cell to see the typical-case download speed.</p>
 
     <div class="tabs" role="tablist">
       <button type="button" class="tab active" data-tab="search">Search 1337x</button>
@@ -300,7 +301,7 @@ function relayPage(config, message = "") {
             <th class="right">Seeds</th>
             <th class="right">Leeches</th>
             <th>Size</th>
-            <th>ETA</th>
+            <th title="Estimated download time. Range shows best-case (fast swarm) to worst-case (slow seeders). Based on your connection cap and the seed count.">ETA<br><small style="font-weight:400;color:#5c5f64">fast – slow</small></th>
             <th>Date</th>
             <th>Uploader</th>
           </tr>
@@ -479,7 +480,7 @@ function relayPage(config, message = "") {
             '<td class="right">', String(r.seeds || 0), '</td>',
             '<td class="right">', String(r.leeches || 0), '</td>',
             '<td>', escAttr(r.sizeText || fmtBytes(r.sizeBytes)), '</td>',
-            '<td title="', escAttr(r.estimatedMBps ? (r.estimatedMBps + " MB/s estimated") : ""), '">', escAttr(r.etaText || ""), '</td>',
+            '<td title="', escAttr(r.estimatedMBps ? (r.estimatedMBps + " MB/s typical estimate") : ""), '">', escAttr(r.etaRangeText || r.etaText || ""), '</td>',
             '<td>', escAttr(r.date || ""), '</td>',
             '<td>', escAttr(r.uploader || ""), '</td>'
           ].join("");

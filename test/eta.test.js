@@ -54,3 +54,27 @@ test("annotateEta: dead torrent gets em-dash text", () => {
   assert.equal(out.etaText, "—");
   assert.equal(out.estimatedMBps, 0);
 });
+import { computeEtaRange, formatEtaRange } from "../src/eta.js";
+
+test("computeEtaRange: fast end is shorter than slow end", () => {
+  const { fast, slow } = computeEtaRange(1 * 1024 ** 3, 10, 2350, 8);
+  assert.ok(fast.etaSeconds < slow.etaSeconds);
+});
+
+test("formatEtaRange: returns single value when fast == slow", () => {
+  assert.equal(formatEtaRange(60, 60), "1m");
+});
+
+test("formatEtaRange: returns fast – slow with en-dash", () => {
+  assert.equal(formatEtaRange(60, 600), "1m – 10m");
+});
+
+test("formatEtaRange: returns em-dash for dead torrent", () => {
+  assert.equal(formatEtaRange(null, null), "—");
+});
+
+test("annotateEta: result contains etaRangeText", () => {
+  const out = annotateEta({ name: "x", seeds: 5, sizeBytes: 1e9 }, 2350, 8);
+  assert.equal(typeof out.etaRangeText, "string");
+  assert.ok(out.etaRangeText.length > 0);
+});

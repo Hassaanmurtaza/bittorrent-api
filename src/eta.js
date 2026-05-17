@@ -11,9 +11,15 @@
 // day. The default below (8 Mbps = 1 MB/s per seed) is a reasonable
 // conservative starting point. Tune via config.bandwidth.perSeedMbps if
 // your real downloads are consistently faster or slower than predicted.
+//
+// We also report a best-case / worst-case ETA range by multiplying the
+// per-seed rate. Best case (fast swarm, fresh release): 2x. Worst case
+// (slow seeders, ISP throttling, distant peers): 0.3x.
 
 export const DEFAULT_DOWNLOAD_MBPS = 2350; // user's measured downlink
 export const DEFAULT_PER_SEED_MBPS = 8;    // ~1 MB/s per seed (rule of thumb)
+export const BEST_CASE_MULTIPLIER = 2.0;
+export const WORST_CASE_MULTIPLIER = 0.3;
 
 export function formatDuration(seconds) {
   if (!Number.isFinite(seconds) || seconds <= 0) return "—";
@@ -33,7 +39,7 @@ export function computeEta(sizeBytes, seeds, downloadMbps, perSeedMbps) {
   const sz = Number(sizeBytes) || 0;
   const s = Number(seeds) || 0;
   const dlMbps = Number(downloadMbps) || DEFAULT_DOWNLOAD_MBPS;
-  const psMbps = Number(perSeedMbps) || DEFAULT_PER_SEED_MBPS;
+  const psMbps = Number(perSeedMbps) || 0;
   if (sz <= 0 || s <= 0 || dlMbps <= 0 || psMbps <= 0) {
     return { effectiveMbps: 0, bytesPerSec: 0, etaSeconds: null };
   }
@@ -44,9 +50,24 @@ export function computeEta(sizeBytes, seeds, downloadMbps, perSeedMbps) {
   return { effectiveMbps, bytesPerSec, etaSeconds };
 }
 
-// Returns a NEW object with etaSeconds, etaText, estimatedMBps fields added.
+export function computeEtaRange(sizeBytes, seeds, downloadMbps, perSeedMbps) {
+  const fast = computeEta(sizeBytes, seeds, downloadMbps, perSeedMbps * BEST_CASE_MULTIPLIER);
+  const slow = computeEta(sizeBytes, seeds, downloadMbps, perSeedMbps * WORST_CASE_MULTIPLIER);
+  return { fast, slow };
+}
+
+export function formatEtaRange(fastSeconds, slowSeconds) {
+  const fastText = formatDuration(fastSeconds);
+  const slowText = formatDuration(slowSeconds);
+  if (fastText === "—" && slowText === "—") return "—";
+  if (fastText === slowText) return fastText;
+  return fastText + " – " + slowText;
+}
+
+// Returns a NEW object with eta fields added.
 export function annotateEta(result, downloadMbps, perSeedMbps) {
-  const { effectiveMbps, bytesPerSec, etaSeconds } = computeEta(
+  const center = computeEta(result?.sizeBytes, result?.seeds, downloadMbps, perSeedMbps);
+  const { fast, slow } = computeEtaRange(
     result?.sizeBytes,
     result?.seeds,
     downloadMbps,
@@ -54,9 +75,12 @@ export function annotateEta(result, downloadMbps, perSeedMbps) {
   );
   return {
     ...result,
-    etaSeconds,
-    etaText: formatDuration(etaSeconds),
-    estimatedMBps: Math.round((bytesPerSec / 1e6) * 10) / 10,
-    estimatedMbps: Math.round(effectiveMbps * 10) / 10
+    etaSeconds: center.etaSeconds,
+    etaText: formatDuration(center.etaSeconds),
+    etaFastSeconds: fast.etaSeconds,
+    etaSlowSeconds: slow.etaSeconds,
+    etaRangeText: formatEtaRange(fast.etaSeconds, slow.etaSeconds),
+    estimatedMBps: Math.round((center.bytesPerSec / 1e6) * 10) / 10,
+    estimatedMbps: Math.round(center.effectiveMbps * 10) / 10
   };
 }
