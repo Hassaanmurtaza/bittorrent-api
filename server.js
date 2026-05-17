@@ -6,6 +6,7 @@ import { pathToFileURL } from "node:url";
 import { extractSupportedLinks, hasUnsupportedWebUrl } from "./src/links.js";
 import { addToQbittorrent } from "./src/qbittorrent.js";
 import { createRelayStore } from "./src/storage.js";
+import { search1337x } from "./src/searchProviders/x1337.js";
 
 const DEFAULT_CONFIG = {
   port: 7331,
@@ -308,12 +309,12 @@ function relayPage(config, message = "") {
       margin: 0;
       min-height: 100vh;
       display: grid;
-      place-items: center;
+      place-items: start center;
       padding: 32px 16px;
       box-sizing: border-box;
     }
     main {
-      width: min(820px, 100%);
+      width: min(900px, 100%);
     }
     h1 {
       font-size: clamp(2rem, 5vw, 4rem);
@@ -326,17 +327,39 @@ function relayPage(config, message = "") {
       line-height: 1.55;
       max-width: 68ch;
     }
+    .tabs {
+      display: flex;
+      gap: 4px;
+      border-bottom: 1px solid #d6d2c9;
+      margin-top: 22px;
+    }
+    .tab {
+      background: transparent;
+      color: #5c5f64;
+      border: 0;
+      border-bottom: 3px solid transparent;
+      padding: 10px 14px;
+      font: inherit;
+      font-weight: 600;
+      cursor: pointer;
+      border-radius: 0;
+    }
+    .tab.active {
+      color: #202124;
+      border-bottom-color: #255f85;
+    }
+    .panel.hidden { display: none; }
     form {
       display: grid;
       gap: 14px;
-      margin-top: 28px;
+      margin-top: 22px;
     }
     textarea, input, select {
       width: 100%;
       box-sizing: border-box;
       border: 1px solid #c8c3ba;
       border-radius: 8px;
-      padding: 14px;
+      padding: 12px;
       font: inherit;
       background: #fffdfa;
       color: inherit;
@@ -350,6 +373,11 @@ function relayPage(config, message = "") {
       gap: 6px;
       font-size: 0.92rem;
       color: #3c4043;
+    }
+    .row {
+      display: grid;
+      grid-template-columns: 1fr 1fr;
+      gap: 12px;
     }
     button {
       width: fit-content;
@@ -368,55 +396,156 @@ function relayPage(config, message = "") {
     }
     .notice {
       min-height: 24px;
-      margin-top: 18px;
+      margin-top: 14px;
       font-weight: 700;
     }
+    table.results {
+      width: 100%;
+      border-collapse: collapse;
+      margin-top: 14px;
+      font-size: 0.92rem;
+    }
+    table.results th, table.results td {
+      text-align: left;
+      padding: 8px 6px;
+      border-bottom: 1px solid #e3dfd6;
+      vertical-align: top;
+    }
+    table.results th {
+      font-weight: 700;
+      color: #3c4043;
+    }
+    table.results td.right { text-align: right; }
+    table.results a { color: inherit; }
+    table.results tr:hover { background: rgba(0,0,0,0.04); }
+    .actions {
+      display: flex;
+      gap: 12px;
+      align-items: center;
+      margin-top: 14px;
+    }
+    .actions.hidden { display: none; }
     @media (prefers-color-scheme: dark) {
       :root {
         background: #171817;
         color: #f2f0ea;
       }
-      p, label.field {
-        color: #c9c5bc;
-      }
+      p, label.field { color: #c9c5bc; }
       textarea, input, select {
         background: #202220;
         border-color: #4b4d48;
       }
-      button {
-        background: #4f95bd;
-      }
+      button { background: #4f95bd; }
+      .tabs { border-bottom-color: #3a3c38; }
+      .tab { color: #c9c5bc; }
+      .tab.active { color: #f2f0ea; border-bottom-color: #4f95bd; }
+      table.results th, table.results td { border-bottom-color: #3a3c38; }
+      table.results tr:hover { background: rgba(255,255,255,0.04); }
     }
   </style>
 </head>
 <body>
   <main>
     <h1>Torrent relay</h1>
-    <p>Paste a magnet link or direct <code>.torrent</code> URL. Your home PC poller will pick it up and send it to qBittorrent.</p>
-    <form id="relay-form">
-      <textarea id="links" autocomplete="off" spellcheck="false" placeholder="magnet:?xt=urn:btih:..."></textarea>
-      <label class="field">
-        Type
-        <select id="type">
-          <option value="movie">Movie</option>
-          <option value="tvshow">TV Show</option>
-          <option value="other">Other</option>
-        </select>
-      </label>
-      <input id="token" type="password" autocomplete="current-password" placeholder="Relay token">
-      <button type="submit">Queue for home PC</button>
-    </form>
-    <div id="notice" class="notice">${escapedMessage}</div>
+    <p>Search 1337x, or paste a magnet / direct <code>.torrent</code> URL. Your home PC poller will pick it up and send it to qBittorrent.</p>
+
+    <div class="tabs" role="tablist">
+      <button type="button" class="tab active" data-tab="search">Search 1337x</button>
+      <button type="button" class="tab" data-tab="magnet">Paste magnet</button>
+    </div>
+
+    <section class="panel" data-panel="search">
+      <form id="search-form">
+        <input id="search-query" type="search" autocomplete="off" placeholder="Search query (e.g. batman vs superman)">
+        <div class="row">
+          <label class="field">
+            Type
+            <select id="search-type">
+              <option value="movie">Movie</option>
+              <option value="tvshow">TV Show</option>
+              <option value="other">Other</option>
+            </select>
+          </label>
+          <label class="field">
+            Top
+            <select id="search-limit">
+              <option value="5" selected>5</option>
+              <option value="10">10</option>
+            </select>
+          </label>
+        </div>
+        <input id="token" type="password" autocomplete="current-password" placeholder="Relay token">
+        <button type="submit">Search</button>
+      </form>
+      <div id="search-notice" class="notice"></div>
+      <table id="search-results" class="results" hidden>
+        <thead>
+          <tr>
+            <th></th>
+            <th>Title</th>
+            <th class="right">Seeds</th>
+            <th class="right">Leeches</th>
+            <th>Size</th>
+            <th>Date</th>
+            <th>Uploader</th>
+          </tr>
+        </thead>
+        <tbody></tbody>
+      </table>
+      <div class="actions hidden">
+        <button type="button" id="queue-selected">Queue selected (0)</button>
+        <span id="queue-notice"></span>
+      </div>
+    </section>
+
+    <section class="panel hidden" data-panel="magnet">
+      <form id="relay-form">
+        <textarea id="links" autocomplete="off" spellcheck="false" placeholder="magnet:?xt=urn:btih:..."></textarea>
+        <label class="field">
+          Type
+          <select id="magnet-type">
+            <option value="movie">Movie</option>
+            <option value="tvshow">TV Show</option>
+            <option value="other">Other</option>
+          </select>
+        </label>
+        <input id="magnet-token" type="password" autocomplete="current-password" placeholder="Relay token">
+        <button type="submit">Queue for home PC</button>
+      </form>
+      <div id="notice" class="notice">${escapedMessage}</div>
+    </section>
   </main>
   <script>
-    const form = document.querySelector("#relay-form");
-    const notice = document.querySelector("#notice");
-    const params = new URLSearchParams(location.search);
-    document.querySelector("#token").value = params.get("token") || "";
+    // --- Tab switching ----------------------------------------------------
+    const tabButtons = document.querySelectorAll(".tab");
+    const panels = document.querySelectorAll(".panel");
+    tabButtons.forEach((btn) => {
+      btn.addEventListener("click", () => {
+        tabButtons.forEach((b) => b.classList.toggle("active", b === btn));
+        panels.forEach((p) =>
+          p.classList.toggle("hidden", p.dataset.panel !== btn.dataset.tab)
+        );
+      });
+    });
 
-    form.addEventListener("submit", async (event) => {
+    // --- Shared: relay token from query string ----------------------------
+    const params = new URLSearchParams(location.search);
+    const tokenParam = params.get("token") || "";
+    const searchTokenInput = document.querySelector("#token");
+    const magnetTokenInput = document.querySelector("#magnet-token");
+    searchTokenInput.value = tokenParam;
+    magnetTokenInput.value = tokenParam;
+    // Keep them in sync if user retypes one.
+    searchTokenInput.addEventListener("input", () => { magnetTokenInput.value = searchTokenInput.value; });
+    magnetTokenInput.addEventListener("input", () => { searchTokenInput.value = magnetTokenInput.value; });
+
+    // --- Paste-magnet flow ------------------------------------------------
+    const relayForm = document.querySelector("#relay-form");
+    const notice = document.querySelector("#notice");
+
+    relayForm.addEventListener("submit", async (event) => {
       event.preventDefault();
-      const button = form.querySelector("button");
+      const button = relayForm.querySelector("button");
       button.disabled = true;
       notice.textContent = "Queueing...";
       try {
@@ -424,11 +553,11 @@ function relayPage(config, message = "") {
           method: "POST",
           headers: {
             "content-type": "application/json",
-            "x-relay-token": document.querySelector("#token").value
+            "x-relay-token": magnetTokenInput.value
           },
           body: JSON.stringify({
             text: document.querySelector("#links").value,
-            type: document.querySelector("#type").value
+            type: document.querySelector("#magnet-type").value
           })
         });
         const result = await response.json();
@@ -440,6 +569,113 @@ function relayPage(config, message = "") {
       } finally {
         button.disabled = false;
       }
+    });
+
+    // --- Search flow ------------------------------------------------------
+    const searchForm = document.querySelector("#search-form");
+    const searchNotice = document.querySelector("#search-notice");
+    const resultsTable = document.querySelector("#search-results");
+    const resultsBody = resultsTable.querySelector("tbody");
+    const actionsBox = document.querySelector(".actions");
+    const queueBtn = document.querySelector("#queue-selected");
+    const queueNotice = document.querySelector("#queue-notice");
+
+    function escAttr(v) {
+      return String(v == null ? "" : v)
+        .replaceAll("&", "&amp;").replaceAll("<", "&lt;").replaceAll(">", "&gt;")
+        .replaceAll('"', "&quot;").replaceAll("'", "&#039;");
+    }
+    function fmtBytes(n) {
+      if (!n) return "";
+      const u = ["B","KB","MB","GB","TB"];
+      let i = 0; let v = n;
+      while (v >= 1024 && i < u.length - 1) { v /= 1024; i++; }
+      return v.toFixed(v < 10 && i > 0 ? 1 : 0) + " " + u[i];
+    }
+    function updateQueueButton() {
+      const n = resultsBody.querySelectorAll("input[type=checkbox]:checked").length;
+      queueBtn.textContent = "Queue selected (" + n + ")";
+      queueBtn.disabled = n === 0;
+    }
+    resultsBody.addEventListener("change", updateQueueButton);
+
+    searchForm.addEventListener("submit", async (event) => {
+      event.preventDefault();
+      const query = document.querySelector("#search-query").value.trim();
+      const type = document.querySelector("#search-type").value;
+      const limit = Number(document.querySelector("#search-limit").value) || 5;
+      if (!query) { searchNotice.textContent = "Enter a search query."; return; }
+      const button = searchForm.querySelector("button");
+      button.disabled = true;
+      searchNotice.textContent = "Searching 1337x...";
+      resultsBody.innerHTML = "";
+      resultsTable.hidden = true;
+      actionsBox.classList.add("hidden");
+      queueNotice.textContent = "";
+      try {
+        const response = await fetch("/api/relay/search", {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-relay-token": searchTokenInput.value
+          },
+          body: JSON.stringify({ query, type, limit })
+        });
+        const body = await response.json();
+        if (!response.ok) throw new Error(body.error || "Search failed");
+        const results = Array.isArray(body.results) ? body.results : [];
+        if (results.length === 0) {
+          searchNotice.textContent = "No results.";
+          return;
+        }
+        searchNotice.textContent = "Found " + results.length + " result(s). Pick one or more, then Queue selected.";
+        for (const r of results) {
+          const tr = document.createElement("tr");
+          tr.innerHTML = [
+            '<td><input type="checkbox" data-magnet="', escAttr(r.magnet), '"></td>',
+            '<td><a href="', escAttr(r.detailUrl), '" target="_blank" rel="noopener noreferrer">', escAttr(r.name), '</a></td>',
+            '<td class="right">', String(r.seeds || 0), '</td>',
+            '<td class="right">', String(r.leeches || 0), '</td>',
+            '<td>', escAttr(r.sizeText || fmtBytes(r.sizeBytes)), '</td>',
+            '<td>', escAttr(r.date || ""), '</td>',
+            '<td>', escAttr(r.uploader || ""), '</td>'
+          ].join("");
+          resultsBody.appendChild(tr);
+        }
+        resultsTable.hidden = false;
+        actionsBox.classList.remove("hidden");
+        updateQueueButton();
+      } catch (error) {
+        searchNotice.textContent = error.message;
+      } finally {
+        button.disabled = false;
+      }
+    });
+
+    queueBtn.addEventListener("click", async () => {
+      const checked = Array.from(resultsBody.querySelectorAll("input[type=checkbox]:checked"));
+      if (checked.length === 0) return;
+      const type = document.querySelector("#search-type").value;
+      queueBtn.disabled = true;
+      queueNotice.textContent = "Queueing " + checked.length + " item(s)...";
+      let ok = 0, fail = 0;
+      for (const cb of checked) {
+        const magnet = cb.dataset.magnet;
+        try {
+          const r = await fetch("/api/relay/add", {
+            method: "POST",
+            headers: {
+              "content-type": "application/json",
+              "x-relay-token": searchTokenInput.value
+            },
+            body: JSON.stringify({ text: magnet, type })
+          });
+          if (r.ok) { ok++; cb.checked = false; }
+          else { fail++; }
+        } catch { fail++; }
+      }
+      queueNotice.textContent = "Queued " + ok + (fail ? " (failed " + fail + ")" : "") + ".";
+      updateQueueButton();
     });
   </script>
 </body>
@@ -477,7 +713,6 @@ const ALLOWED_TYPES = new Set(["movie", "tvshow", "other"]);
 function normalizeType(value) {
   if (typeof value !== "string") return "other";
   const cleaned = value.trim().toLowerCase().replace(/[\s-]+/g, "");
-  // Accept a few common variants users might type.
   if (cleaned === "tv" || cleaned === "tvshow" || cleaned === "tvshows" || cleaned === "show" || cleaned === "series") {
     return "tvshow";
   }
@@ -541,6 +776,23 @@ export function createRequestHandler(config) {
             type: body.type
           });
           return send(res, 200, { id: item.id, links: item.links.length, type: item.type });
+        }
+
+        if (req.method === "POST" && url.pathname === "/api/relay/search") {
+          verifyRelayRequest(req, config);
+          const body = await readJson(req);
+          const query = String(body.query || "").trim();
+          if (!query) {
+            return send(res, 400, { error: "query is required" });
+          }
+          const type = normalizeType(body.type);
+          const limit = Math.max(1, Math.min(20, Number(body.limit) || 5));
+          try {
+            const results = await search1337x(query, { type, limit });
+            return send(res, 200, { results });
+          } catch (err) {
+            return send(res, 502, { error: err.message || "Search failed" });
+          }
         }
 
         if (req.method === "GET" && url.pathname === "/api/relay/poll") {

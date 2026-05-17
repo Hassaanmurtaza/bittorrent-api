@@ -22,6 +22,8 @@
     "language": "en-CA"
   },
   "tvShowOverrides": {
-    "black clover": 73223
+    "_comment": "Two forms supported. Bare number = TMDB id. Object = { tmdbId, defaultSeason }. defaultSeason routes torrents without a parsed season (anime absolute numbering) into a specific Season XX folder, which Emby needs for series identification.",
+    "breaking bad": 1396,
+    "one piece": { "tmdbId": 37854, "defaultSeason": 1 }
   }
 }

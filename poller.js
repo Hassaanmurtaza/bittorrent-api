@@ -83,13 +83,35 @@ function firstDisplayName(links) {
   return null;
 }
 
-function buildLabel(show, info) {
+// An override entry is either a bare TMDB id (number/string), or
+// { tmdbId, defaultSeason } where defaultSeason is used when the parser cannot
+// extract a season number (e.g. anime absolute-episode releases).
+function readOverride(overrides, title) {
+  if (!overrides || !title) return { tmdbId: null, defaultSeason: null };
+  const raw = overrides[title.toLowerCase()];
+  if (raw === undefined || raw === null) return { tmdbId: null, defaultSeason: null };
+  if (typeof raw === "number" || typeof raw === "string") {
+    return { tmdbId: raw, defaultSeason: null };
+  }
+  if (typeof raw === "object") {
+    const ds = raw.defaultSeason;
+    const normalizedDs = ds === null || ds === undefined || ds === "" ? null : Number(ds);
+    return {
+      tmdbId: raw.tmdbId !== undefined && raw.tmdbId !== null ? raw.tmdbId : null,
+      defaultSeason: Number.isFinite(normalizedDs) ? normalizedDs : null
+    };
+  }
+  return { tmdbId: null, defaultSeason: null };
+}
+
+function buildLabel(show, effectiveSeason, isCompleteSeries, usedDefaultSeason) {
   let label = show.name;
   if (show.year) label += " (" + show.year + ")";
-  if (info.isCompleteSeries) {
+  if (isCompleteSeries) {
     label += " [complete series]";
-  } else if (info.season !== null && info.season !== undefined) {
-    label += " S" + String(info.season).padStart(2, "0");
+  } else if (effectiveSeason !== null && effectiveSeason !== undefined) {
+    const tag = usedDefaultSeason ? " [default]" : "";
+    label += " S" + String(effectiveSeason).padStart(2, "0") + tag;
   }
   return label;
 }
@@ -108,10 +130,9 @@ async function planTvShow(item, config, tmdb) {
   const info = parseSeriesInfo(dn);
   if (!info.title) return fallback;
 
-  let show = null;
-  const overrides = config.tvShowOverrides || {};
-  const overrideId = overrides[info.title.toLowerCase()];
+  const { tmdbId: overrideId, defaultSeason } = readOverride(config.tvShowOverrides, info.title);
 
+  let show = null;
   try {
     if (overrideId) {
       show = await tmdb.lookupTvById(overrideId);
@@ -125,18 +146,23 @@ async function planTvShow(item, config, tmdb) {
 
   if (!show || !show.name) return fallback;
 
+  // Use the parser's season if found; otherwise fall back to the override's
+  // defaultSeason (anime-friendly), otherwise null (show root).
+  const usedDefaultSeason = info.season === null && defaultSeason !== null && !info.isCompleteSeries;
+  const effectiveSeason = info.season !== null ? info.season : (info.isCompleteSeries ? null : defaultSeason);
+
   const savepath = buildTvSavepath({
     baseDir,
     showName: show.name,
     year: show.year,
-    season: info.season,
+    season: effectiveSeason,
     isCompleteSeries: info.isCompleteSeries
   });
 
   return {
     savepath,
     contentLayout: "NoSubfolder",
-    label: buildLabel(show, info)
+    label: buildLabel(show, effectiveSeason, info.isCompleteSeries, usedDefaultSeason)
   };
 }
 
