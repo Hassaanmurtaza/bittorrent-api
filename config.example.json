@@ -15,5 +15,13 @@
     "movie": "E:\\Downloads\\Movies",
     "tvshow": "E:\\Downloads\\TV Shows",
     "other": "E:\\Downloads\\Others"
+  },
+  "tmdb": {
+    "apiReadToken": "your-tmdb-v4-read-access-token",
+    "apiKey": "your-tmdb-v3-api-key",
+    "language": "en-CA"
+  },
+  "tvShowOverrides": {
+    "black clover": 73223
   }
 }

@@ -1,10 +1,12 @@
 export async function qbFetch(config, path, options = {}) {
   const base = config.qbittorrentUrl.replace(/\/+$/g, "");
   try {
-    return await fetch(`${base}${path}`, options);
+    return await fetch(base + path, options);
   } catch (error) {
+    const cause = (error.cause && error.cause.code) || error.message;
     throw new Error(
-      `Could not reach qBittorrent Web UI at ${base}. Open qBittorrent, enable Tools -> Options -> Web UI, and check config.json. (${error.cause?.code || error.message})`
+      "Could not reach qBittorrent Web UI at " + base +
+      ". Open qBittorrent, enable Tools -> Options -> Web UI, and check config.json. (" + cause + ")"
     );
   }
 }
@@ -28,7 +30,8 @@ export async function login(config) {
     );
   }
 
-  const cookie = response.headers.get("set-cookie")?.split(";")[0];
+  const setCookie = response.headers.get("set-cookie");
+  const cookie = setCookie ? setCookie.split(";")[0] : null;
   if (!cookie) {
     throw new Error("qBittorrent did not return a session cookie.");
   }
@@ -41,12 +44,12 @@ export async function addToQbittorrent(config, urls, options = {}) {
   const form = new FormData();
   form.set("urls", urls.join("\n"));
 
-  const category = options.category ?? config.defaultCategory;
+  const category = options.category != null ? options.category : config.defaultCategory;
   if (category) {
     form.set("category", category);
   }
 
-  const paused = options.paused ?? config.startPaused;
+  const paused = options.paused != null ? options.paused : config.startPaused;
   form.set("paused", paused ? "true" : "false");
 
   if (options.savepath) {
@@ -57,6 +60,18 @@ export async function addToQbittorrent(config, urls, options = {}) {
     form.set("savepath", options.savepath);
   }
 
+  if (options.contentLayout) {
+    // qBittorrent 4.3.2+ understands contentLayout with values
+    // "Original" / "Subfolder" / "NoSubfolder". Older versions used a boolean
+    // root_folder field, so we send both for backwards compatibility.
+    form.set("contentLayout", options.contentLayout);
+    if (options.contentLayout === "NoSubfolder") {
+      form.set("root_folder", "false");
+    } else if (options.contentLayout === "Subfolder") {
+      form.set("root_folder", "true");
+    }
+  }
+
   const response = await qbFetch(config, "/api/v2/torrents/add", {
     method: "POST",
     headers: { cookie },
@@ -65,7 +80,7 @@ export async function addToQbittorrent(config, urls, options = {}) {
 
   const text = await response.text();
   if (!response.ok) {
-    throw new Error(`qBittorrent rejected the torrent add request: ${text || response.status}`);
+    throw new Error("qBittorrent rejected the torrent add request: " + (text || response.status));
   }
 
   return text || "Ok.";
