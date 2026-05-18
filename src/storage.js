@@ -22,6 +22,7 @@ class FileRelayStore {
     this.searchResultsFile = config.searchResultsFile || "relay-search-results.json";
     this.torrentsStatusFile = config.torrentsStatusFile || "relay-torrents-status.json";
     this.deleteJobsFile = config.deleteJobsFile || "relay-delete-jobs.json";
+    this.learningFile = config.learningRelayFile || "relay-learning-store.json";
   }
 
   async _readJson(file) {
@@ -134,6 +135,17 @@ class FileRelayStore {
     await this._writeJson(this.deleteJobsFile, jobs);
     return next;
   }
+
+  // --- Learned ETA model (no TTL) --------------------------------------
+
+  async setLearning(payload) {
+    if (!payload || typeof payload !== "object") return;
+    await this._writeJson(this.learningFile, payload);
+  }
+
+  async getLearning() {
+    return await this._readJson(this.learningFile);
+  }
 }
 
 class RedisRelayStore {
@@ -145,6 +157,7 @@ class RedisRelayStore {
     this.searchResultPrefix = `${config.queueKey}:search:result:`;
     this.torrentsStatusKey = `${config.queueKey}:torrents:status`;
     this.deleteJobsKey = `${config.queueKey}:torrents:delete:jobs`;
+    this.learningKey = `${config.queueKey}:learning`;
   }
 
   async command(args) {
@@ -271,5 +284,18 @@ class RedisRelayStore {
     } catch {
       return null;
     }
+  }
+
+  // --- Learned ETA model (no TTL) --------------------------------------
+
+  async setLearning(payload) {
+    if (!payload || typeof payload !== "object") return;
+    await this.command(["SET", this.learningKey, JSON.stringify(payload)]);
+  }
+
+  async getLearning() {
+    const raw = await this.command(["GET", this.learningKey]);
+    if (!raw) return null;
+    try { return JSON.parse(raw); } catch { return null; }
   }
 }

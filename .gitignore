@@ -5,3 +5,8 @@ config.json
 .vercel
 bridge.pid
 relay-queue.json
+relay-learning.json
+relay-search-jobs.json
+relay-search-results.json
+relay-torrents-status.json
+relay-delete-jobs.json

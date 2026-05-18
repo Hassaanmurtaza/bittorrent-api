@@ -14,7 +14,6 @@ import {
   effectivePerSeedMbps,
   summarizeLearning
 } from "./src/learning.js";
-import { writeFile } from "node:fs/promises";
 
 const DEFAULT_CONFIG = {
   qbittorrentUrl: "http://127.0.0.1:8080",
@@ -98,21 +97,29 @@ async function loadConfig() {
   };
 }
 
-async function loadLearning(file) {
+async function loadLearningFromRelay(config) {
+  try {
+    const r = await fetch(relayEndpoint(config, "/api/relay/learning"), {
+      headers: { "x-relay-token": config.relayToken }
+    });
+    if (!r.ok) return null;
+    const body = await r.json();
+    if (body && typeof body === "object" && body.perSeedSamples !== undefined) {
+      return { ...DEFAULT_LEARNING, ...body };
+    }
+    return null;
+  } catch {
+    return null;
+  }
+}
+
+async function loadLearningFromFile(file) {
   try {
     const text = await readFile(file, "utf8");
     const data = JSON.parse(text);
     return { ...DEFAULT_LEARNING, ...data };
   } catch {
-    return { ...DEFAULT_LEARNING };
-  }
-}
-
-async function saveLearning(file, learning) {
-  try {
-    await writeFile(file, JSON.stringify(learning, null, 2), "utf8");
-  } catch (err) {
-    console.error("Failed to save learning file:", err.message);
+    return null;
   }
 }
 
@@ -406,15 +413,16 @@ async function statusPushLoop(config) {
       await drainDeleteJobs(config);
       const torrents = await getTorrents(config);
       learning = updateLearning(learning, torrents);
-      // Persist asynchronously; do not block the loop on disk I/O.
-      saveLearning(config.learningFile, learning).catch(() => {});
+      // The relay persists the full learning state in Upstash; no local file
+      // writes (so the working tree stays clean and you never have to commit
+      // runtime state).
       const r = await fetch(relayEndpoint(config, "/api/relay/torrents/status"), {
         method: "POST",
         headers: {
           "content-type": "application/json",
           "x-relay-token": config.relayToken
         },
-        body: JSON.stringify({ torrents, learning: summarizeLearning(learning) })
+        body: JSON.stringify({ torrents, learning })
       });
       if (!r.ok) {
         const text = await r.text().catch(() => "");

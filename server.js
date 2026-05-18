@@ -603,14 +603,17 @@ function relayPage(config, message = "") {
         statusMeta.textContent = "Live snapshot from " + body.updatedAt + " (" + list.length + " torrent" + (list.length === 1 ? "" : "s") + ")";
         const statusLearning = document.querySelector("#status-learning");
         if (body.learning && statusLearning) {
-          if (body.learning.trusted) {
+          const lrn = body.learning;
+          const samples = Number(lrn.perSeedSamples) || 0;
+          const perSeed = typeof lrn.perSeedMbps === "number" ? Math.round(lrn.perSeedMbps * 10) / 10 : null;
+          const peak = typeof lrn.totalMbpsObservedMax === "number" ? Math.round(lrn.totalMbpsObservedMax * 10) / 10 : 0;
+          const trusted = samples >= 20 && perSeed !== null;
+          if (trusted) {
             statusLearning.textContent =
-              "Learned ETA rate: " + body.learning.perSeedMbps + " Mbps per seed (from " +
-              body.learning.samples + " samples). Peak swarm seen: " +
-              body.learning.totalMbpsObservedMax + " Mbps total.";
+              "Learned ETA rate: " + perSeed + " Mbps per seed (from " + samples + " samples). Peak swarm seen: " + peak + " Mbps total. Persisted on relay.";
           } else {
             statusLearning.textContent =
-              "Learning in progress: " + body.learning.samples + " samples so far (need 20 to switch from the config default).";
+              "Learning in progress: " + samples + " samples so far (need 20 to switch from the config default). Persisted on relay.";
           }
         }
         statusBody.innerHTML = "";
@@ -873,11 +876,22 @@ export function createRequestHandler(config) {
         if (req.method === "POST" && url.pathname === "/api/relay/torrents/status") {
           verifyRelayRequest(req, config);
           const body = await readJson(req);
+          if (body && body.learning && typeof body.learning === "object") {
+            await relayStore.setLearning(body.learning);
+          }
           await relayStore.setTorrentsStatus({
             torrents: Array.isArray(body.torrents) ? body.torrents : [],
+            learning: body && body.learning ? body.learning : null,
             updatedAt: new Date().toISOString()
           });
           return send(res, 200, { ok: true });
+        }
+
+        // Home poller pulls the persisted learning state on startup.
+        if (req.method === "GET" && url.pathname === "/api/relay/learning") {
+          verifyRelayRequest(req, config);
+          const learning = await relayStore.getLearning();
+          return send(res, 200, learning || null);
         }
 
         if (req.method === "GET" && url.pathname === "/api/relay/torrents/status") {
