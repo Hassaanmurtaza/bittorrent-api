@@ -8,7 +8,10 @@
   "relayUrl": "https://your-public-relay.example",
   "relayToken": "change-this-to-a-different-long-random-string",
   "queueKey": "qbittorrent-relay-queue",
-  "pollIntervalSeconds": 20,
+  "pollIntervalSeconds": 60,
+  "pollSearchIntervalSeconds": 15,
+  "pollSearchIdleIntervalSeconds": 30,
+  "_intervals_comment": "Eco-mode defaults. Each loop touches Upstash once per tick; Upstash's free tier caps you at 500K commands/month. Search loop starts at pollSearchIntervalSeconds and backs off to pollSearchIdleIntervalSeconds after a few empty pulls.",
   "defaultCategory": "",
   "startPaused": false,
   "savePaths": {
@@ -36,5 +39,7 @@
     "downloadMbps": 2350,
     "perSeedMbps": 8
   },
-  "pushStatsIntervalSeconds": 5
+  "pushStatsIntervalSeconds": 15,
+  "pushStatsIdleIntervalSeconds": 120,
+  "_pushStats_comment": "Status push uses pushStatsIntervalSeconds while at least one torrent is moving bytes, and pushStatsIdleIntervalSeconds otherwise. The poller also fingerprint-skips relay POSTs when nothing has changed, so most idle ticks cost zero Redis commands."
 }

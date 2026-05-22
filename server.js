@@ -339,7 +339,7 @@ function relayPage(config, message = "") {
     </section>
 
     <section class="panel hidden" data-panel="status">
-      <p style="font-size:0.9rem">Live snapshot of qBittorrent on the home PC. Auto-refreshes every 5 seconds while this tab is open. If the home poller is offline you'll see "stale".</p>
+      <p style="font-size:0.9rem">Live snapshot of qBittorrent on the home PC. Auto-refreshes every 20 seconds while this tab is visible (paused when the tab is in the background — Upstash's free tier has a tight command budget). If the home poller is offline you'll see "stale".</p>
       <input id="status-token" type="password" autocomplete="current-password" placeholder="Relay token" style="margin-bottom:14px">
       <div id="status-meta" class="notice"></div>
       <div id="status-learning" style="font-size:0.85rem;color:#5c5f64;margin-bottom:8px"></div>
@@ -442,6 +442,9 @@ function relayPage(config, message = "") {
     function sleep(ms) { return new Promise((r) => setTimeout(r, ms)); }
 
     async function pollResult(jobId, deadlineMs) {
+      // 2.5s between polls — the home-PC poller's searchLoop runs at ~15s
+      // anyway, so polling faster than that just burns Redis commands.
+      const POLL_MS = 2500;
       let elapsed = 0;
       while (Date.now() < deadlineMs) {
         const r = await fetch("/api/relay/search/" + encodeURIComponent(jobId), {
@@ -452,10 +455,10 @@ function relayPage(config, message = "") {
         if (body.status === "done") return body;
         if (body.status === "failed") return body;
         // Pending: keep waiting.
-        elapsed += 1500;
+        elapsed += POLL_MS;
         const note = elapsed > 6000 ? " (your home PC poller is doing the scraping)" : "";
         searchNotice.textContent = "Searching..." + note;
-        await sleep(1500);
+        await sleep(POLL_MS);
       }
       return { status: "timeout" };
     }
@@ -485,7 +488,10 @@ function relayPage(config, message = "") {
         const jobId = enqBody.jobId;
         if (!jobId) throw new Error("No jobId returned");
 
-        const deadline = Date.now() + 60_000;
+        // 90s deadline gives the home poller plenty of room — its search
+        // loop runs at 15-30s cadence in eco mode, so the first pull can
+        // take up to 30s, then the scrape itself ~5-15s.
+        const deadline = Date.now() + 90_000;
         const final = await pollResult(jobId, deadline);
         if (final.status === "timeout") {
           searchNotice.textContent = "Timed out — make sure your home PC poller is running.";
@@ -674,20 +680,45 @@ function relayPage(config, message = "") {
       }
     });
 
+    // 20s instead of 5s — each refresh costs one Upstash GET command, and
+    // the free tier only allows 500K commands/month. With this cadence a
+    // user who leaves the status tab open all day burns ~4,300 commands
+    // instead of ~17,000.
+    const STATUS_POLL_MS = 20000;
+    let statusTabVisible = false;
     function startStatusPoll() {
+      statusTabVisible = true;
       refreshStatus();
       stopStatusPoll();
-      statusPollTimer = setInterval(refreshStatus, 5000);
+      // Only schedule the next refresh if the document is currently visible.
+      // visibilitychange below re-arms us when the user returns to the tab.
+      if (document.visibilityState === "visible") {
+        statusPollTimer = setInterval(refreshStatus, STATUS_POLL_MS);
+      }
     }
     function stopStatusPoll() {
       if (statusPollTimer) { clearInterval(statusPollTimer); statusPollTimer = null; }
     }
 
+    // Pause/resume polling when the tab is backgrounded. Most users leave
+    // the relay open in a pinned tab; without this guard a tab that's not
+    // even on screen would still hammer Redis.
+    document.addEventListener("visibilitychange", () => {
+      if (!statusTabVisible) return;
+      if (document.visibilityState === "visible") {
+        refreshStatus();
+        stopStatusPoll();
+        statusPollTimer = setInterval(refreshStatus, STATUS_POLL_MS);
+      } else {
+        stopStatusPoll();
+      }
+    });
+
     // Wire tab switching to start/stop status polling
     tabButtons.forEach((btn) => {
       btn.addEventListener("click", () => {
         if (btn.dataset.tab === "status") startStatusPoll();
-        else stopStatusPoll();
+        else { statusTabVisible = false; stopStatusPoll(); }
       });
     });
     // If status tab is initially active (it's not by default), start polling.
@@ -876,7 +907,16 @@ export function createRequestHandler(config) {
         if (req.method === "POST" && url.pathname === "/api/relay/torrents/status") {
           verifyRelayRequest(req, config);
           const body = await readJson(req);
-          if (body && body.learning && typeof body.learning === "object") {
+          // The poller embeds `learning` in every status push (for the UI),
+          // but only sets `persistLearning: true` on pushes where the sample
+          // count actually changed. Skipping the standalone SET on every
+          // tick saves ~17K Redis commands/day on Upstash's free tier.
+          if (
+            body &&
+            body.persistLearning === true &&
+            body.learning &&
+            typeof body.learning === "object"
+          ) {
             await relayStore.setLearning(body.learning);
           }
           await relayStore.setTorrentsStatus({

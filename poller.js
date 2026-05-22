@@ -23,9 +23,19 @@ const DEFAULT_CONFIG = {
   startPaused: false,
   relayUrl: "",
   relayToken: "",
-  pollIntervalSeconds: 20,
-  pollSearchIntervalSeconds: 2,
-  pushStatsIntervalSeconds: 5,
+  // Eco defaults — kept slow so we don't burn through Upstash's 500K
+  // commands/month free tier. Each loop hits Redis once per tick, so the
+  // intervals below cap us at roughly:
+  //   torrents : 1440/day (60s)
+  //   search   : 2880/day idle, 5760/day active (15s/30s adaptive)
+  //   status   : 5760/day active, 720/day idle (15s/120s adaptive)
+  // Plus we skip the status SET when the snapshot fingerprint hasn't
+  // changed and only persist `learning` when sample count increased.
+  pollIntervalSeconds: 60,
+  pollSearchIntervalSeconds: 15,
+  pollSearchIdleIntervalSeconds: 30,
+  pushStatsIntervalSeconds: 15,
+  pushStatsIdleIntervalSeconds: 120,
   savePaths: {
     movie: "E:\\Downloads\\Movies",
     tvshow: "E:\\Downloads\\TV Shows",
@@ -67,10 +77,20 @@ async function loadConfig() {
         fileConfig.pollSearchIntervalSeconds ||
         DEFAULT_CONFIG.pollSearchIntervalSeconds
     ),
+    pollSearchIdleIntervalSeconds: Number(
+      process.env.POLL_SEARCH_IDLE_INTERVAL_SECONDS ||
+        fileConfig.pollSearchIdleIntervalSeconds ||
+        DEFAULT_CONFIG.pollSearchIdleIntervalSeconds
+    ),
     pushStatsIntervalSeconds: Number(
       process.env.PUSH_STATS_INTERVAL_SECONDS ||
         fileConfig.pushStatsIntervalSeconds ||
         DEFAULT_CONFIG.pushStatsIntervalSeconds
+    ),
+    pushStatsIdleIntervalSeconds: Number(
+      process.env.PUSH_STATS_IDLE_INTERVAL_SECONDS ||
+        fileConfig.pushStatsIdleIntervalSeconds ||
+        DEFAULT_CONFIG.pushStatsIdleIntervalSeconds
     ),
     savePaths: {
       ...DEFAULT_CONFIG.savePaths,
@@ -322,17 +342,32 @@ async function torrentsLoop(config, tmdb) {
   }
 }
 
-// Loop 2: search-job queue. Runs every pollSearchIntervalSeconds.
+// Loop 2: search-job queue.
+//
+// Adaptive cadence: while we're seeing jobs we poll on the "active" interval
+// (pollSearchIntervalSeconds, default 15s). After IDLE_THRESHOLD consecutive
+// empty pulls we back off to pollSearchIdleIntervalSeconds (default 30s). The
+// first request after a long quiet period therefore picks up at most a half
+// minute late, which is acceptable for an interactive search UI.
 async function searchLoop(config) {
-  console.log("Search provider: " + (config.searchProvider || "apibay") + ".");
-  console.log("Polling for search jobs every " + config.pollSearchIntervalSeconds + "s.");
+  const activeMs = Math.max(1, Number(config.pollSearchIntervalSeconds) || 15) * 1000;
+  const idleMs = Math.max(activeMs / 1000, Number(config.pollSearchIdleIntervalSeconds) || 30) * 1000;
+  const IDLE_THRESHOLD = 3; // 3 empty ticks before backing off
+  let emptyTicks = 0;
+  console.log("Search provider: " + (config.searchProvider || "knaben") + ".");
+  console.log(
+    "Polling for search jobs every " + (activeMs / 1000) + "s (idle: " + (idleMs / 1000) + "s)."
+  );
   while (true) {
     try {
       const job = await fetchNextSearchJob(config);
       if (!job) {
-        await sleep(config.pollSearchIntervalSeconds * 1000);
+        emptyTicks++;
+        const sleepMs = emptyTicks >= IDLE_THRESHOLD ? idleMs : activeMs;
+        await sleep(sleepMs);
         continue;
       }
+      emptyTicks = 0;
       console.log(
         "Search job " + job.id + ": " + JSON.stringify({ query: job.query, type: job.type, limit: job.limit })
       );
@@ -361,7 +396,7 @@ async function searchLoop(config) {
       }
     } catch (error) {
       console.error("search loop:", error.message);
-      await sleep(config.pollSearchIntervalSeconds * 1000);
+      await sleep(activeMs);
     }
   }
 }
@@ -405,33 +440,102 @@ async function drainDeleteJobs(config) {
 // Module-level learning state (shared by status push + search loops)
 let learning = { ...DEFAULT_LEARNING };
 
+// Coarse fingerprint of the current torrents snapshot. We deliberately round
+// speeds and progress so that a torrent ticking from 65.43% -> 65.44% doesn't
+// trigger a Redis write. This is the single biggest savings: when the swarm
+// is steady (a "stalled" torrent, or an idle qBittorrent with completed
+// torrents seeding) the fingerprint stays identical for hours and we skip
+// the relay POST entirely.
+function fingerprintTorrents(torrents) {
+  if (!Array.isArray(torrents)) return "";
+  return torrents
+    .map((t) => [
+      t.hash,
+      t.state,
+      Math.round((Number(t.progress) || 0) * 200),       // 0.5% buckets
+      Math.round((Number(t.dlspeed) || 0) / 131072),     // ~128 KB/s buckets
+      Math.round((Number(t.upspeed) || 0) / 131072),
+      Number(t.numSeeds) || 0,
+      Number(t.numLeechs) || 0
+    ].join(":"))
+    .join("|");
+}
+
+// "Active" means qBittorrent is actually moving bytes for at least one
+// torrent. We keep the fast cadence while bytes are flowing (so the UI
+// feels live and we capture fresh learning samples) and slow way down the
+// rest of the time. Note: a torrent stuck at "downloading" with dlspeed=0
+// counts as idle for cadence purposes — there's nothing for the UI to
+// usefully refresh.
+function hasActiveTraffic(torrents) {
+  if (!Array.isArray(torrents)) return false;
+  for (const t of torrents) {
+    if ((Number(t.dlspeed) || 0) > 0) return true;
+    if ((Number(t.upspeed) || 0) > 0) return true;
+  }
+  return false;
+}
+
 async function statusPushLoop(config) {
-  const intervalMs = Math.max(1, Number(config.pushStatsIntervalSeconds) || 5) * 1000;
-  console.log("Pushing qBittorrent status every " + (intervalMs / 1000) + "s.");
+  const activeMs = Math.max(1, Number(config.pushStatsIntervalSeconds) || 15) * 1000;
+  const idleMs = Math.max(activeMs / 1000, Number(config.pushStatsIdleIntervalSeconds) || 120) * 1000;
+  // Force a push at least this often so the UI doesn't think we're stale
+  // even when literally nothing has changed.
+  const HEARTBEAT_MS = 5 * 60 * 1000;
+  console.log(
+    "Pushing qBittorrent status every " + (activeMs / 1000) + "s active / " +
+    (idleMs / 1000) + "s idle (heartbeat " + (HEARTBEAT_MS / 1000) + "s)."
+  );
+
+  let lastFingerprint = "";
+  let lastLearningSamples = -1;
+  let lastPushAt = 0;
+
   while (true) {
+    let active = false;
     try {
       await drainDeleteJobs(config);
       const torrents = await getTorrents(config);
       learning = updateLearning(learning, torrents);
-      // The relay persists the full learning state in Upstash; no local file
-      // writes (so the working tree stays clean and you never have to commit
-      // runtime state).
-      const r = await fetch(relayEndpoint(config, "/api/relay/torrents/status"), {
-        method: "POST",
-        headers: {
-          "content-type": "application/json",
-          "x-relay-token": config.relayToken
-        },
-        body: JSON.stringify({ torrents, learning })
-      });
-      if (!r.ok) {
-        const text = await r.text().catch(() => "");
-        throw new Error("relay status push failed: " + r.status + " " + text.slice(0, 120));
+      active = hasActiveTraffic(torrents);
+
+      const fingerprint = fingerprintTorrents(torrents);
+      const samples = Number(learning && learning.perSeedSamples) || 0;
+      const learningChanged = samples !== lastLearningSamples;
+      const snapshotChanged = fingerprint !== lastFingerprint;
+      const now = Date.now();
+      const heartbeatDue = now - lastPushAt >= HEARTBEAT_MS;
+
+      if (snapshotChanged || learningChanged || heartbeatDue) {
+        // Tell the relay whether it should bother re-persisting `learning`
+        // to its own Redis key. The status snapshot itself always carries
+        // the latest `learning` for the UI; the standalone learning key is
+        // only useful on poller restart, so we only refresh it when sample
+        // count moved.
+        const r = await fetch(relayEndpoint(config, "/api/relay/torrents/status"), {
+          method: "POST",
+          headers: {
+            "content-type": "application/json",
+            "x-relay-token": config.relayToken
+          },
+          body: JSON.stringify({
+            torrents,
+            learning,
+            persistLearning: learningChanged
+          })
+        });
+        if (!r.ok) {
+          const text = await r.text().catch(() => "");
+          throw new Error("relay status push failed: " + r.status + " " + text.slice(0, 120));
+        }
+        lastFingerprint = fingerprint;
+        lastLearningSamples = samples;
+        lastPushAt = now;
       }
     } catch (error) {
       console.error("status push:", error.message);
     }
-    await sleep(intervalMs);
+    await sleep(active ? activeMs : idleMs);
   }
 }
 
